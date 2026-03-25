@@ -89,7 +89,7 @@ const MapView = () => {
   }, [mapPosition, selectedElevation])
 
   return (
-    <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
+    <div className="w-screen h-screen relative">
       <ReactMapGL
         initialViewState={{ longitude: initialParams.longitude, latitude: initialParams.latitude, zoom: initialParams.zoom }}
         style={{ width: '100%', height: '100%' }}
@@ -146,40 +146,14 @@ const MapView = () => {
       </ReactMapGL>
 
       {isLoadingContours && (
-        <div style={{
-          position: 'absolute',
-          bottom: 32,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: 'rgba(0, 0, 0, 0.65)',
-          color: '#ffffff',
-          padding: '6px 14px 6px 10px',
-          borderRadius: 20,
-          fontSize: 13,
-          fontFamily: 'system-ui, sans-serif',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          pointerEvents: 'none',
-        }}>
-          <div className="contour-spinner" />
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-black/65 text-white text-[13px] font-sans px-3.5 py-1.5 pl-2.5 rounded-full flex items-center gap-2 pointer-events-none">
+          <div className="size-[14px] rounded-full border-2 border-white/30 border-t-white shrink-0 animate-contour-spin" />
           Loading contours…
         </div>
       )}
 
       {selectedElevation !== null && (
-        <div style={{
-          position: 'absolute',
-          top: 16,
-          right: 16,
-          background: 'rgba(0, 0, 0, 0.72)',
-          color: '#ffffff',
-          padding: '8px 14px',
-          borderRadius: 6,
-          fontSize: 14,
-          fontFamily: 'system-ui, sans-serif',
-          pointerEvents: 'none',
-        }}>
+        <div className="absolute top-4 right-4 bg-black/[0.72] text-white text-sm font-sans px-3.5 py-2 rounded-md pointer-events-none">
           Selected: <strong>{selectedElevation} m</strong>
         </div>
       )}
