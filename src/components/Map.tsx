@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactMapGL, { Layer, Source } from 'react-map-gl/maplibre'
-import type { LayerProps } from 'react-map-gl/maplibre'
+import type { LayerProps, MapRef } from 'react-map-gl/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { contourTileUrl } from '../lib/contourSource'
 
 const BASE_MAP_STYLE = 'https://tiles.openfreemap.org/styles/positron'
 const TERRARIUM_TILES = ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png']
+const SATELLITE_TILES = ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}']
 const DEFAULT_VIEW = { longitude: 75.35236, latitude: 13.23472, zoom: 12 }
 
 const CONTOUR_SOURCE_ID = 'contour'
@@ -13,6 +14,8 @@ const CONTOUR_LAYER_ID = 'contour-lines'
 const CONTOUR_SELECTED_LAYER_ID = 'contour-selected'
 const CONTOUR_HIT_LAYER_ID = 'contour-hit'
 const CONTOUR_SOURCE_LAYER = 'contours'
+
+type Basemap = 'hillshade' | 'satellite'
 
 const contourHitLayerSpec: LayerProps = {
   id: CONTOUR_HIT_LAYER_ID,
@@ -25,21 +28,20 @@ const contourHitLayerSpec: LayerProps = {
   },
 }
 
-const contourBaseLayerSpec: LayerProps = {
+const buildContourBaseLayerSpec = (basemap: Basemap): LayerProps => ({
   id: CONTOUR_LAYER_ID,
   type: 'line',
   ...({ 'source-layer': CONTOUR_SOURCE_LAYER } as object),
   minzoom: 9,
   paint: {
-    'line-color': [
-      'case', ['==', ['get', 'level'], 1], '#666666', '#aaaaaa',
-    ] as unknown as string,
-    'line-width': [
-      'case', ['==', ['get', 'level'], 1], 1.5, 0.75,
-    ] as unknown as number,
+    'line-color': (basemap === 'satellite'
+      ? ['case', ['==', ['get', 'level'], 1], '#ffffff', 'rgba(255,255,255,0.55)']
+      : ['case', ['==', ['get', 'level'], 1], '#666666', '#aaaaaa']
+    ) as unknown as string,
+    'line-width': ['case', ['==', ['get', 'level'], 1], 1.5, 0.75] as unknown as number,
     'line-opacity': 0.9,
   },
-}
+})
 
 const buildSelectedLayerSpec = (selectedElevation: number): LayerProps => ({
   id: CONTOUR_SELECTED_LAYER_ID,
@@ -61,18 +63,28 @@ const parseUrlParams = () => {
   const parsedLat = parseFloat(params.get('lat') ?? '')
   const parsedZoom = parseFloat(params.get('zoom') ?? '')
   const parsedContour = parseFloat(params.get('contour') ?? '')
+  const parsedBasemap = params.get('basemap')
   return {
     longitude: isNaN(parsedLng) ? DEFAULT_VIEW.longitude : parsedLng,
     latitude: isNaN(parsedLat) ? DEFAULT_VIEW.latitude : parsedLat,
     zoom: isNaN(parsedZoom) ? DEFAULT_VIEW.zoom : parsedZoom,
     selectedContour: isNaN(parsedContour) ? null : parsedContour,
+    basemap: (parsedBasemap === 'satellite' ? 'satellite' : 'hillshade') as Basemap,
   }
 }
 
+const BASEMAP_OPTIONS: { id: Basemap; label: string }[] = [
+  { id: 'hillshade', label: 'Terrain' },
+  { id: 'satellite', label: 'Satellite' },
+]
+
 const MapView = () => {
+  const mapRef = useRef<MapRef>(null)
   const [initialParams] = useState(parseUrlParams)
   const [selectedElevation, setSelectedElevation] = useState<number | null>(initialParams.selectedContour)
   const [isLoadingContours, setIsLoadingContours] = useState(true)
+  const [mapIsLoaded, setMapIsLoaded] = useState(false)
+  const [basemap, setBasemap] = useState<Basemap>(initialParams.basemap)
   const [mapPosition, setMapPosition] = useState<MapPosition>({
     longitude: initialParams.longitude,
     latitude: initialParams.latitude,
@@ -85,12 +97,22 @@ const MapView = () => {
     params.set('lat', mapPosition.latitude.toFixed(5))
     params.set('zoom', mapPosition.zoom.toFixed(2))
     if (selectedElevation !== null) params.set('contour', String(selectedElevation))
+    if (basemap !== 'hillshade') params.set('basemap', basemap)
     window.history.replaceState(null, '', `?${params.toString()}`)
-  }, [mapPosition, selectedElevation])
+  }, [mapPosition, selectedElevation, basemap])
+
+  useEffect(() => {
+    if (!mapIsLoaded) return
+    const map = mapRef.current?.getMap()
+    if (!map) return
+    map.setLayoutProperty('terrain-hillshade', 'visibility', basemap === 'hillshade' ? 'visible' : 'none')
+    map.setLayoutProperty('satellite-layer', 'visibility', basemap === 'satellite' ? 'visible' : 'none')
+  }, [basemap, mapIsLoaded])
 
   return (
     <div className="w-screen h-screen relative">
       <ReactMapGL
+        ref={mapRef}
         initialViewState={{ longitude: initialParams.longitude, latitude: initialParams.latitude, zoom: initialParams.zoom }}
         style={{ width: '100%', height: '100%' }}
         mapStyle={BASE_MAP_STYLE}
@@ -104,6 +126,20 @@ const MapView = () => {
           const mapInstance = event.target
           const firstSymbolLayerId = mapInstance.getStyle().layers?.find(layer => layer.type === 'symbol')?.id
 
+          mapInstance.addSource('satellite', {
+            type: 'raster',
+            tiles: SATELLITE_TILES,
+            tileSize: 256,
+            maxzoom: 19,
+          })
+
+          mapInstance.addLayer({
+            id: 'satellite-layer',
+            type: 'raster',
+            source: 'satellite',
+            layout: { visibility: 'none' },
+          }, firstSymbolLayerId)
+
           mapInstance.addSource('terrain-dem', {
             type: 'raster-dem',
             tiles: TERRARIUM_TILES,
@@ -116,6 +152,7 @@ const MapView = () => {
             id: 'terrain-hillshade',
             type: 'hillshade',
             source: 'terrain-dem',
+            layout: { visibility: 'visible' },
             paint: {
               'hillshade-exaggeration': 0.5,
               'hillshade-illumination-direction': 335,
@@ -124,6 +161,8 @@ const MapView = () => {
               'hillshade-accent-color': '#3d2f1e',
             },
           }, firstSymbolLayerId)
+
+          setMapIsLoaded(true)
         }}
         onMoveEnd={(event) => {
           const { longitude, latitude, zoom } = event.viewState
@@ -137,13 +176,29 @@ const MapView = () => {
         onIdle={() => setIsLoadingContours(false)}
       >
         <Source id={CONTOUR_SOURCE_ID} type="vector" tiles={[contourTileUrl]} maxzoom={15}>
-          <Layer {...contourBaseLayerSpec} />
+          <Layer {...buildContourBaseLayerSpec(basemap)} />
           {selectedElevation !== null && (
             <Layer {...buildSelectedLayerSpec(selectedElevation)} />
           )}
           <Layer {...contourHitLayerSpec} />
         </Source>
       </ReactMapGL>
+
+      <div className="absolute left-3 top-1/2 -translate-y-1/2 bg-white/90 backdrop-blur-sm rounded-xl shadow-lg p-1.5 flex flex-col gap-1">
+        {BASEMAP_OPTIONS.map(({ id, label }) => (
+          <button
+            key={id}
+            onClick={() => setBasemap(id)}
+            className={`px-3 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+              basemap === id
+                ? 'bg-gray-900 text-white'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
       {isLoadingContours && (
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-black/65 text-white text-[13px] font-sans px-3.5 py-1.5 pl-2.5 rounded-full flex items-center gap-2 pointer-events-none">
