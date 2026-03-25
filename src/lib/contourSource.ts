@@ -1,7 +1,7 @@
 import maplibregl from 'maplibre-gl'
 import mlContour from 'maplibre-contour'
 
-const demSource = new mlContour.DemSource({
+export const demSource = new mlContour.DemSource({
   url: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
   encoding: 'terrarium',
   maxzoom: 13,

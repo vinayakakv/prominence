@@ -3,6 +3,7 @@ import ReactMapGL, { Layer, Source } from 'react-map-gl/maplibre'
 import type { LayerProps, MapRef } from 'react-map-gl/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { contourTileUrl } from '../lib/contourSource'
+import { getElevationFillTileUrl } from '../lib/elevationFill'
 
 const BASE_MAP_STYLE = 'https://tiles.openfreemap.org/styles/positron'
 const TERRARIUM_TILES = ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png']
@@ -50,7 +51,7 @@ const buildSelectedLayerSpec = (selectedElevation: number): LayerProps => ({
   filter: ['==', ['get', 'ele'], selectedElevation] as unknown as boolean,
   paint: {
     'line-color': '#f97316',
-    'line-width': 3,
+    'line-width': 2.5,
     'line-opacity': 1,
   },
 })
@@ -109,6 +110,18 @@ const MapView = () => {
     map.setLayoutProperty('satellite-layer', 'visibility', basemap === 'satellite' ? 'visible' : 'none')
   }, [basemap, mapIsLoaded])
 
+  useEffect(() => {
+    if (!mapIsLoaded) return
+    const map = mapRef.current?.getMap()
+    if (!map) return
+    if (selectedElevation === null) {
+      map.setLayoutProperty('elevation-fill-layer', 'visibility', 'none')
+    } else {
+      ;(map.getSource('elevation-fill-source') as any).setTiles([getElevationFillTileUrl(selectedElevation)])
+      map.setLayoutProperty('elevation-fill-layer', 'visibility', 'visible')
+    }
+  }, [selectedElevation, mapIsLoaded])
+
   return (
     <div className="w-screen h-screen relative">
       <ReactMapGL
@@ -160,6 +173,21 @@ const MapView = () => {
               'hillshade-highlight-color': '#ffffff',
               'hillshade-accent-color': '#3d2f1e',
             },
+          }, firstSymbolLayerId)
+
+          mapInstance.addSource('elevation-fill-source', {
+            type: 'raster',
+            tiles: [],
+            tileSize: 256,
+            maxzoom: 13,
+          })
+
+          mapInstance.addLayer({
+            id: 'elevation-fill-layer',
+            type: 'raster',
+            source: 'elevation-fill-source',
+            layout: { visibility: 'none' },
+            paint: { 'raster-opacity': 0.45 },
           }, firstSymbolLayerId)
 
           setMapIsLoaded(true)
