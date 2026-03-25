@@ -4,7 +4,8 @@ import type { LayerProps } from 'react-map-gl/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { contourTileUrl } from '../lib/contourSource'
 
-const BASE_MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty'
+const BASE_MAP_STYLE = 'https://tiles.openfreemap.org/styles/positron'
+const TERRARIUM_TILES = ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png']
 const DEFAULT_VIEW = { longitude: 75.35236, latitude: 13.23472, zoom: 12 }
 
 const CONTOUR_SOURCE_ID = 'contour'
@@ -98,6 +99,31 @@ const MapView = () => {
           const clickedFeature = event.features?.[0]
           const elevation = clickedFeature?.properties?.ele as number | undefined
           setSelectedElevation(elevation ?? null)
+        }}
+        onLoad={(event) => {
+          const mapInstance = event.target
+          const firstSymbolLayerId = mapInstance.getStyle().layers?.find(layer => layer.type === 'symbol')?.id
+
+          mapInstance.addSource('terrain-dem', {
+            type: 'raster-dem',
+            tiles: TERRARIUM_TILES,
+            encoding: 'terrarium',
+            tileSize: 256,
+            maxzoom: 13,
+          })
+
+          mapInstance.addLayer({
+            id: 'terrain-hillshade',
+            type: 'hillshade',
+            source: 'terrain-dem',
+            paint: {
+              'hillshade-exaggeration': 0.5,
+              'hillshade-illumination-direction': 335,
+              'hillshade-shadow-color': '#3d2f1e',
+              'hillshade-highlight-color': '#ffffff',
+              'hillshade-accent-color': '#3d2f1e',
+            },
+          }, firstSymbolLayerId)
         }}
         onMoveEnd={(event) => {
           const { longitude, latitude, zoom } = event.viewState
