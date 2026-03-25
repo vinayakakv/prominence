@@ -1,50 +1,69 @@
-import maplibregl from 'maplibre-gl'
 import { demSource } from './contourSource'
+import { detectAndRenderIslands } from './islandDetector'
 
-const PROTOCOL = 'elevation-fill'
+export const lngLatToTile = (lng: number, lat: number, z: number): { x: number; y: number } => {
+  const n = Math.pow(2, z)
+  const x = Math.floor((lng + 180) / 360 * n)
+  const latRad = lat * Math.PI / 180
+  const y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n)
+  return { x, y }
+}
 
-maplibregl.addProtocol(PROTOCOL, async (requestParameters) => {
-  const url = requestParameters.url
-  // url looks like: elevation-fill://z/x/y?t=1200
-  const withoutProtocol = url.slice(PROTOCOL.length + 3) // strip "elevation-fill://"
-  const [pathPart, queryPart] = withoutProtocol.split('?')
-  const [z, x, y] = pathPart.split('/').map(Number)
-  const threshold = parseFloat(queryPart?.split('t=')[1] ?? '0')
+const tileLngLat = (z: number, tx: number, ty: number): [number, number] => {
+  const n = Math.pow(2, z)
+  const lng = tx / n * 360 - 180
+  const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / n))) * 180 / Math.PI
+  return [lng, lat]
+}
 
-  const tile = await (demSource as any).getDemTile(z, x, y)
-  const { width, height, data } = tile as { width: number; height: number; data: Float32Array }
+// Returns [NW, NE, SE, SW] corners for MapLibre canvas source coordinates
+export const getTileCanvasCoordinates = (
+  z: number, xMin: number, yMin: number, xMax: number, yMax: number,
+): [[number, number], [number, number], [number, number], [number, number]] => [
+  tileLngLat(z, xMin,     yMin),      // NW
+  tileLngLat(z, xMax + 1, yMin),      // NE
+  tileLngLat(z, xMax + 1, yMax + 1),  // SE
+  tileLngLat(z, xMin,     yMax + 1),  // SW
+]
 
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  const ctx = canvas.getContext('2d')!
-  const imageData = ctx.createImageData(width, height)
-  const pixels = imageData.data
+export const renderElevationFill = async ({
+  canvas, tileZ, xMin, xMax, yMin, yMax, threshold,
+}: {
+  canvas: HTMLCanvasElement
+  tileZ: number
+  xMin: number; xMax: number
+  yMin: number; yMax: number
+  threshold: number
+}): Promise<void> => {
+  const tileSize = 256
+  const cols = xMax - xMin + 1
+  const rows = yMax - yMin + 1
+  const stitchedW = cols * tileSize
+  const stitchedH = rows * tileSize
+  const stitched = new Float32Array(stitchedW * stitchedH)
 
-  for (let i = 0; i < data.length; i++) {
-    const elevation = data[i]
-    const idx = i * 4
-    if (elevation >= threshold) {
-      pixels[idx] = 249      // r  (orange #f97316)
-      pixels[idx + 1] = 115  // g
-      pixels[idx + 2] = 22   // b
-      pixels[idx + 3] = 140  // a (~55% opacity baked in)
-    } else {
-      pixels[idx + 3] = 0    // transparent
+  type TileFetch = { tx: number; ty: number; tile: { width: number; height: number; data: Float32Array } }
+  const fetches: Promise<TileFetch>[] = []
+  for (let ty = yMin; ty <= yMax; ty++) {
+    for (let tx = xMin; tx <= xMax; tx++) {
+      fetches.push(
+        (demSource as any).getDemTile(tileZ, tx, ty).then(
+          (tile: TileFetch['tile']) => ({ tx, ty, tile })
+        )
+      )
+    }
+  }
+  const tiles = await Promise.all(fetches)
+
+  for (const { tx, ty, tile } of tiles) {
+    const colOffset = (tx - xMin) * tileSize
+    const rowOffset = (ty - yMin) * tileSize
+    for (let row = 0; row < tileSize; row++) {
+      const srcStart = row * tileSize
+      const dstStart = (rowOffset + row) * stitchedW + colOffset
+      stitched.set(tile.data.subarray(srcStart, srcStart + tileSize), dstStart)
     }
   }
 
-  ctx.putImageData(imageData, 0, 0)
-
-  const buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (!blob) { reject(new Error('canvas.toBlob failed')); return }
-      blob.arrayBuffer().then(resolve, reject)
-    }, 'image/png')
-  })
-
-  return { data: buffer }
-})
-
-export const getElevationFillTileUrl = (threshold: number): string =>
-  `${PROTOCOL}://{z}/{x}/{y}?t=${threshold}`
+  detectAndRenderIslands(canvas, stitched, stitchedW, stitchedH, threshold, tileZ, xMin, yMin)
+}

@@ -4,7 +4,7 @@ import type { LayerProps, MapRef } from 'react-map-gl/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { ChevronUp, ChevronDown } from 'lucide-react'
 import { contourTileUrl } from '../lib/contourSource'
-import { getElevationFillTileUrl } from '../lib/elevationFill'
+import { renderElevationFill, getTileCanvasCoordinates, lngLatToTile } from '../lib/elevationFill'
 import { stepElevation } from '../lib/elevationStep'
 
 const BASE_MAP_STYLE = 'https://tiles.openfreemap.org/styles/positron'
@@ -83,6 +83,7 @@ const BASEMAP_OPTIONS: { id: Basemap; label: string }[] = [
 
 const MapView = () => {
   const mapRef = useRef<MapRef>(null)
+  const islandCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const [initialParams] = useState(parseUrlParams)
   const [selectedElevation, setSelectedElevation] = useState<number | null>(initialParams.selectedContour)
   const [stepDelta, setStepDelta] = useState(100)
@@ -116,14 +117,38 @@ const MapView = () => {
   useEffect(() => {
     if (!mapIsLoaded) return
     const map = mapRef.current?.getMap()
-    if (!map) return
+    const canvas = islandCanvasRef.current
+    if (!map || !canvas) return
+
     if (selectedElevation === null) {
-      map.setLayoutProperty('elevation-fill-layer', 'visibility', 'none')
-    } else {
-      ;(map.getSource('elevation-fill-source') as any).setTiles([getElevationFillTileUrl(selectedElevation)])
-      map.setLayoutProperty('elevation-fill-layer', 'visibility', 'visible')
+      map.setLayoutProperty('island-fill-layer', 'visibility', 'none')
+      return
     }
-  }, [selectedElevation, mapIsLoaded])
+
+    const tileZ = Math.min(Math.floor(mapPosition.zoom), 13)
+
+    const bounds = map.getBounds()
+    const maxTile = Math.pow(2, tileZ) - 1
+    const sw = lngLatToTile(bounds.getWest(), bounds.getSouth(), tileZ)
+    const ne = lngLatToTile(bounds.getEast(), bounds.getNorth(), tileZ)
+    const xMin = Math.max(0, Math.min(sw.x, ne.x))
+    const xMax = Math.min(maxTile, Math.max(sw.x, ne.x))
+    const yMin = Math.max(0, Math.min(sw.y, ne.y))
+    const yMax = Math.min(maxTile, Math.max(sw.y, ne.y))
+
+    let cancelled = false
+    renderElevationFill({ canvas, tileZ, xMin, xMax, yMin, yMax, threshold: selectedElevation })
+      .then(() => {
+        if (cancelled) return
+        const source = map.getSource('island-fill') as any
+        source.setCoordinates(getTileCanvasCoordinates(tileZ, xMin, yMin, xMax, yMax))
+        source.play()
+        requestAnimationFrame(() => { if (!cancelled) source.pause() })
+        map.setLayoutProperty('island-fill-layer', 'visibility', 'visible')
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [selectedElevation, mapPosition, mapIsLoaded])
 
   return (
     <div className="w-screen h-screen relative">
@@ -178,19 +203,24 @@ const MapView = () => {
             },
           }, firstSymbolLayerId)
 
-          mapInstance.addSource('elevation-fill-source', {
-            type: 'raster',
-            tiles: [],
-            tileSize: 256,
-            maxzoom: 13,
-          })
+          const islandCanvas = document.createElement('canvas')
+          islandCanvas.width = 256
+          islandCanvas.height = 256
+          islandCanvasRef.current = islandCanvas
+
+          mapInstance.addSource('island-fill', {
+            type: 'canvas',
+            canvas: islandCanvas,
+            coordinates: [[0, 1], [1, 1], [1, 0], [0, 0]], // placeholder, updated on first render
+            animate: false,
+          } as any)
 
           mapInstance.addLayer({
-            id: 'elevation-fill-layer',
+            id: 'island-fill-layer',
             type: 'raster',
-            source: 'elevation-fill-source',
+            source: 'island-fill',
             layout: { visibility: 'none' },
-            paint: { 'raster-opacity': 0.45 },
+            paint: { 'raster-opacity': 0.6 },
           }, firstSymbolLayerId)
 
           setMapIsLoaded(true)
@@ -206,7 +236,7 @@ const MapView = () => {
         }}
         onIdle={() => setIsLoadingContours(false)}
       >
-        <Source id={CONTOUR_SOURCE_ID} type="vector" tiles={[contourTileUrl]} maxzoom={15}>
+        <Source id={CONTOUR_SOURCE_ID} type="vector" tiles={[contourTileUrl]} minzoom={9} maxzoom={15}>
           <Layer {...buildContourBaseLayerSpec(basemap)} />
           {selectedElevation !== null && (
             <Layer {...buildSelectedLayerSpec(selectedElevation)} />
