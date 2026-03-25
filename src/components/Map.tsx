@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import ReactMapGL, { Layer, Source } from 'react-map-gl/maplibre'
 import type { LayerProps, MapRef } from 'react-map-gl/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import { ChevronUp, ChevronDown } from 'lucide-react'
 import { contourTileUrl } from '../lib/contourSource'
 import { getElevationFillTileUrl } from '../lib/elevationFill'
+import { stepElevation } from '../lib/elevationStep'
 
 const BASE_MAP_STYLE = 'https://tiles.openfreemap.org/styles/positron'
 const TERRARIUM_TILES = ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png']
@@ -83,6 +85,7 @@ const MapView = () => {
   const mapRef = useRef<MapRef>(null)
   const [initialParams] = useState(parseUrlParams)
   const [selectedElevation, setSelectedElevation] = useState<number | null>(initialParams.selectedContour)
+  const [stepDelta, setStepDelta] = useState(100)
   const [isLoadingContours, setIsLoadingContours] = useState(true)
   const [mapIsLoaded, setMapIsLoaded] = useState(false)
   const [basemap, setBasemap] = useState<Basemap>(initialParams.basemap)
@@ -236,8 +239,36 @@ const MapView = () => {
       )}
 
       {selectedElevation !== null && (
-        <div className="absolute top-4 right-4 bg-black/[0.72] text-white text-sm font-sans px-3.5 py-2 rounded-md pointer-events-none">
-          Selected: <strong>{selectedElevation} m</strong>
+        <div className="absolute top-4 right-4 bg-black/[0.72] text-white text-sm font-sans rounded-md overflow-hidden">
+          <div className="px-3.5 py-2 pointer-events-none">
+            Selected: <strong>{selectedElevation} m</strong>
+          </div>
+          <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
+            <button
+              onClick={() => setSelectedElevation(e => e !== null ? stepElevation(e, stepDelta, 'down') : null)}
+              className="p-1 rounded hover:bg-white/15 transition-colors cursor-pointer"
+              title={`−${stepDelta} m`}
+            >
+              <ChevronDown size={16} />
+            </button>
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                value={stepDelta}
+                min={1}
+                onChange={e => setStepDelta(Math.max(1, Number(e.target.value)))}
+                className="w-16 bg-white/10 text-white text-xs text-center rounded px-1.5 py-1 outline-none focus:bg-white/20 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+              />
+              <span className="text-xs text-white/60">m</span>
+            </div>
+            <button
+              onClick={() => setSelectedElevation(e => e !== null ? stepElevation(e, stepDelta, 'up') : null)}
+              className="p-1 rounded hover:bg-white/15 transition-colors cursor-pointer"
+              title={`+${stepDelta} m`}
+            >
+              <ChevronUp size={16} />
+            </button>
+          </div>
         </div>
       )}
     </div>
