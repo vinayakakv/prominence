@@ -1,11 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMapGL, { Layer, Source } from 'react-map-gl/maplibre'
 import type { LayerProps, MapRef } from 'react-map-gl/maplibre'
+import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { ChevronUp, ChevronDown } from 'lucide-react'
 import { contourTileUrl } from '../lib/contourSource'
-import { renderElevationFill, getTileCanvasCoordinates, lngLatToTile } from '../lib/elevationFill'
-import { stepElevation } from '../lib/elevationStep'
+import { renderElevationFill, fetchAndStitchTiles, getTileCanvasCoordinates, lngLatToTile } from '../lib/elevationFill'
+import { detectAndRenderIslands } from '../lib/islandDetector'
+import { stepProminence, snapToPeak } from '../lib/prominenceAlgorithm'
+import type { ProminenceContext, ProminenceStep } from '../lib/prominenceAlgorithm'
+import { Sidebar } from './Sidebar'
+import type { Phase } from './Sidebar'
 
 const BASE_MAP_STYLE = 'https://tiles.openfreemap.org/styles/positron'
 const TERRARIUM_TILES = ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png']
@@ -67,27 +71,46 @@ const parseUrlParams = () => {
   const parsedZoom = parseFloat(params.get('zoom') ?? '')
   const parsedContour = parseFloat(params.get('contour') ?? '')
   const parsedBasemap = params.get('basemap')
+  const parsedPeakLat = parseFloat(params.get('peak_lat') ?? '')
+  const parsedPeakLng = parseFloat(params.get('peak_lng') ?? '')
+  const parsedPeakEle = parseFloat(params.get('peak_ele') ?? '')
   return {
     longitude: isNaN(parsedLng) ? DEFAULT_VIEW.longitude : parsedLng,
     latitude: isNaN(parsedLat) ? DEFAULT_VIEW.latitude : parsedLat,
     zoom: isNaN(parsedZoom) ? DEFAULT_VIEW.zoom : parsedZoom,
     selectedContour: isNaN(parsedContour) ? null : parsedContour,
     basemap: (parsedBasemap === 'satellite' ? 'satellite' : 'hillshade') as Basemap,
+    savedPeak: (!isNaN(parsedPeakLat) && !isNaN(parsedPeakLng) && !isNaN(parsedPeakEle))
+      ? { lat: parsedPeakLat, lng: parsedPeakLng, ele: parsedPeakEle }
+      : null,
   }
 }
 
-const BASEMAP_OPTIONS: { id: Basemap; label: string }[] = [
-  { id: 'hillshade', label: 'Terrain' },
-  { id: 'satellite', label: 'Satellite' },
-]
+const reloadContourTiles = (map: maplibregl.Map) => {
+  try {
+    (map as any).style.sourceCaches?.[CONTOUR_SOURCE_ID]?.reload()
+  } catch {}
+}
+
+const createMarkerEl = (color: string) => {
+  const el = document.createElement('div')
+  el.style.cssText = `width:13px;height:13px;border-radius:50%;background:${color};border:2.5px solid white;box-shadow:0 1px 5px rgba(0,0,0,0.4);cursor:default`
+  return el
+}
 
 const MapView = () => {
   const mapRef = useRef<MapRef>(null)
   const islandCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const peakMarkerRef = useRef<maplibregl.Marker | null>(null)
+  const parentMarkerRef = useRef<maplibregl.Marker | null>(null)
+  const steppingRef = useRef(false)
+
   const [initialParams] = useState(parseUrlParams)
+
+  // Map state
   const [selectedElevation, setSelectedElevation] = useState<number | null>(initialParams.selectedContour)
   const [stepDelta, setStepDelta] = useState(100)
-  const [isLoadingContours, setIsLoadingContours] = useState(true)
+  const [isLoading, setIsLoading] = useState(true)
   const [mapIsLoaded, setMapIsLoaded] = useState(false)
   const [basemap, setBasemap] = useState<Basemap>(initialParams.basemap)
   const [mapPosition, setMapPosition] = useState<MapPosition>({
@@ -96,6 +119,16 @@ const MapView = () => {
     zoom: initialParams.zoom,
   })
 
+  // Prominence state
+  const [phase, setPhase] = useState<Phase>(initialParams.savedPeak ? 'ready' : 'idle')
+  const [selectedPeak, setSelectedPeak] = useState<{ lat: number; lng: number; ele: number } | null>(initialParams.savedPeak)
+  const [prominenceCtx, setProminenceCtx] = useState<ProminenceContext | null>(null)
+  const [history, setHistory] = useState<ProminenceStep[]>([])
+  const [paused, setPaused] = useState(false)
+  const [stepInterval, setStepInterval] = useState(20)
+  const [parentPeak, setParentPeak] = useState<{ lat: number; lng: number; ele: number } | null>(null)
+
+  // URL param sync
   useEffect(() => {
     const params = new URLSearchParams()
     params.set('lng', mapPosition.longitude.toFixed(5))
@@ -103,9 +136,15 @@ const MapView = () => {
     params.set('zoom', mapPosition.zoom.toFixed(2))
     if (selectedElevation !== null) params.set('contour', String(selectedElevation))
     if (basemap !== 'hillshade') params.set('basemap', basemap)
+    if (selectedPeak) {
+      params.set('peak_lat', selectedPeak.lat.toFixed(5))
+      params.set('peak_lng', selectedPeak.lng.toFixed(5))
+      params.set('peak_ele', selectedPeak.ele.toFixed(1))
+    }
     window.history.replaceState(null, '', `?${params.toString()}`)
-  }, [mapPosition, selectedElevation, basemap])
+  }, [mapPosition, selectedElevation, basemap, selectedPeak])
 
+  // Basemap toggle
   useEffect(() => {
     if (!mapIsLoaded) return
     const map = mapRef.current?.getMap()
@@ -114,8 +153,17 @@ const MapView = () => {
     map.setLayoutProperty('satellite-layer', 'visibility', basemap === 'satellite' ? 'visible' : 'none')
   }, [basemap, mapIsLoaded])
 
+  // Crosshair cursor during peak selection
+  useEffect(() => {
+    const canvas = mapRef.current?.getMap()?.getCanvas()
+    if (canvas) canvas.style.cursor = phase === 'selecting' ? 'crosshair' : ''
+  }, [phase])
+
+  // Normal island fill (disabled during prominence run)
   useEffect(() => {
     if (!mapIsLoaded) return
+    if (phase === 'running') return
+
     const map = mapRef.current?.getMap()
     const canvas = islandCanvasRef.current
     if (!map || !canvas) return
@@ -126,7 +174,6 @@ const MapView = () => {
     }
 
     const tileZ = Math.min(Math.floor(mapPosition.zoom), 13)
-
     const bounds = map.getBounds()
     const maxTile = Math.pow(2, tileZ) - 1
     const sw = lngLatToTile(bounds.getWest(), bounds.getSouth(), tileZ)
@@ -148,7 +195,171 @@ const MapView = () => {
       })
       .catch(() => {})
     return () => { cancelled = true }
-  }, [selectedElevation, mapPosition, mapIsLoaded])
+  }, [selectedElevation, mapPosition, mapIsLoaded, phase])
+
+  // Peak marker
+  useEffect(() => {
+    const map = mapRef.current?.getMap()
+    if (!map || !mapIsLoaded) return
+    peakMarkerRef.current?.remove()
+    peakMarkerRef.current = null
+    if (!selectedPeak) return
+    peakMarkerRef.current = new maplibregl.Marker({ element: createMarkerEl('#3b82f6') })
+      .setLngLat([selectedPeak.lng, selectedPeak.lat])
+      .addTo(map)
+  }, [selectedPeak, mapIsLoaded])
+
+  // Parent peak marker
+  useEffect(() => {
+    const map = mapRef.current?.getMap()
+    if (!map || !mapIsLoaded) return
+    parentMarkerRef.current?.remove()
+    parentMarkerRef.current = null
+    if (!parentPeak) return
+    parentMarkerRef.current = new maplibregl.Marker({ element: createMarkerEl('#f97316') })
+      .setLngLat([parentPeak.lng, parentPeak.lat])
+      .addTo(map)
+  }, [parentPeak, mapIsLoaded])
+
+  const renderProminenceCanvases = useCallback((
+    data: Float32Array, width: number, height: number,
+    threshold: number, tileZ: number, xMin: number, yMin: number, xMax: number, yMax: number,
+  ) => {
+    const map = mapRef.current?.getMap()
+    const fillCanvas = islandCanvasRef.current
+    if (!map || !fillCanvas) return
+
+    detectAndRenderIslands(fillCanvas, data, width, height, threshold, tileZ, xMin, yMin)
+    const fillSource = map.getSource('island-fill') as any
+    fillSource.setCoordinates(getTileCanvasCoordinates(tileZ, xMin, yMin, xMax, yMax))
+    fillSource.play()
+    requestAnimationFrame(() => fillSource.pause())
+    map.setLayoutProperty('island-fill-layer', 'visibility', 'visible')
+  }, [])
+
+  const executeStep = useCallback(async (ctx: ProminenceContext) => {
+    if (steppingRef.current) return
+    steppingRef.current = true
+    try {
+      const { ctx: nextCtx, step, data, width, height } = await stepProminence(ctx)
+      const { tileZ, xMin, yMin, xMax, yMax } = nextCtx
+      const threshold = step.done ? step.keyColEle : ctx.currentThreshold
+
+      renderProminenceCanvases(data, width, height, threshold, tileZ, xMin, yMin, xMax, yMax)
+
+      // Keep URL contour param and selected contour highlight in sync with current threshold
+      setSelectedElevation(threshold)
+
+      // Zoom map to show expanded tile coverage, pause until animation + tile load settles
+      if (!step.done && step.expandedTiles) {
+        const coords = getTileCanvasCoordinates(nextCtx.tileZ, nextCtx.xMin, nextCtx.yMin, nextCtx.xMax, nextCtx.yMax)
+        const swLng = coords[3][0], swLat = coords[2][1]
+        const neLng = coords[1][0], neLat = coords[0][1]
+        const map = mapRef.current?.getMap()
+        if (map) {
+          setPaused(true)
+          map.fitBounds([[swLng, swLat], [neLng, neLat]], { padding: 40, duration: 700 })
+          map.once('idle', () => {
+            renderProminenceCanvases(data, width, height, threshold, nextCtx.tileZ, nextCtx.xMin, nextCtx.yMin, nextCtx.xMax, nextCtx.yMax)
+            reloadContourTiles(map)
+            setPaused(false)
+          })
+        }
+      }
+
+      setHistory(h => [...h, step])
+
+      if (step.done) {
+        setPhase('done')
+        setParentPeak(step.parentPeak)
+        setProminenceCtx(nextCtx)
+      } else {
+        setProminenceCtx(nextCtx)
+      }
+    } catch {
+      setPaused(true)
+    } finally {
+      steppingRef.current = false
+    }
+  }, [renderProminenceCanvases])
+
+  // Auto-run prominence steps
+  useEffect(() => {
+    if (phase !== 'running' || paused || !prominenceCtx) return
+    let cancelled = false
+    const timer = setTimeout(() => {
+      if (!cancelled) executeStep(prominenceCtx)
+    }, 80)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [phase, paused, prominenceCtx, executeStep])
+
+  const onToggleSelectPeak = () => {
+    if (phase === 'selecting') {
+      setPhase(selectedPeak ? 'ready' : 'idle')
+    } else if (phase === 'idle' || phase === 'ready') {
+      setPhase('selecting')
+    }
+  }
+
+  const onCompute = () => {
+    if (!selectedPeak || !mapIsLoaded) return
+    const map = mapRef.current?.getMap()
+    if (!map) return
+
+    const tileZ = Math.min(Math.floor(mapPosition.zoom), 13)
+    const bounds = map.getBounds()
+    const maxTile = Math.pow(2, tileZ) - 1
+    const sw = lngLatToTile(bounds.getWest(), bounds.getSouth(), tileZ)
+    const ne = lngLatToTile(bounds.getEast(), bounds.getNorth(), tileZ)
+
+    const ctx: ProminenceContext = {
+      peakLat: selectedPeak.lat,
+      peakLng: selectedPeak.lng,
+      peakEle: selectedPeak.ele,
+      tileZ,
+      xMin: Math.max(0, Math.min(sw.x, ne.x)),
+      xMax: Math.min(maxTile, Math.max(sw.x, ne.x)),
+      yMin: Math.max(0, Math.min(sw.y, ne.y)),
+      yMax: Math.min(maxTile, Math.max(sw.y, ne.y)),
+      stepInterval,
+      currentThreshold: selectedPeak.ele - stepInterval,
+    }
+
+    // Render fill snapshot at starting elevation before first step
+    if (selectedElevation !== null) {
+      const { xMin: cx, xMax: cX, yMin: cy, yMax: cY } = ctx
+      fetchAndStitchTiles({ tileZ, xMin: cx, xMax: cX, yMin: cy, yMax: cY })
+        .then(({ data, width, height }) => {
+          renderProminenceCanvases(data, width, height, ctx.currentThreshold, tileZ, cx, cy, cX, cY)
+        })
+        .catch(() => {})
+    }
+
+    setProminenceCtx(ctx)
+    setHistory([])
+    setParentPeak(null)
+    setPaused(false)
+    setPhase('running')
+  }
+
+  const onStep = () => {
+    if (!prominenceCtx || phase !== 'running') return
+    executeStep(prominenceCtx)
+  }
+
+  const onTogglePause = () => setPaused(p => !p)
+
+  const onReset = () => {
+    setPhase(selectedPeak ? 'ready' : 'idle')
+    setProminenceCtx(null)
+    setHistory([])
+    setPaused(false)
+    setParentPeak(null)
+    const map = mapRef.current?.getMap()
+    if (map && mapIsLoaded) {
+      map.setLayoutProperty('island-fill-layer', 'visibility', 'none')
+    }
+  }
 
   return (
     <div className="w-screen h-screen relative">
@@ -159,6 +370,16 @@ const MapView = () => {
         mapStyle={BASE_MAP_STYLE}
         interactiveLayerIds={[CONTOUR_HIT_LAYER_ID]}
         onClick={(event) => {
+          if (phase === 'selecting') {
+            const { lng, lat } = event.lngLat
+            const tileZ = Math.min(Math.floor(mapPosition.zoom), 13)
+            setPhase('ready')
+            setSelectedPeak(null)
+            snapToPeak(lat, lng, tileZ)
+              .then(peak => setSelectedPeak(peak))
+              .catch(() => setPhase('selecting'))
+            return
+          }
           const clickedFeature = event.features?.[0]
           const elevation = clickedFeature?.properties?.ele as number | undefined
           setSelectedElevation(elevation ?? null)
@@ -173,7 +394,6 @@ const MapView = () => {
             tileSize: 256,
             maxzoom: 19,
           })
-
           mapInstance.addLayer({
             id: 'satellite-layer',
             type: 'raster',
@@ -188,7 +408,6 @@ const MapView = () => {
             tileSize: 256,
             maxzoom: 13,
           })
-
           mapInstance.addLayer({
             id: 'terrain-hillshade',
             type: 'hillshade',
@@ -203,25 +422,30 @@ const MapView = () => {
             },
           }, firstSymbolLayerId)
 
+          // Island fill canvas
           const islandCanvas = document.createElement('canvas')
-          islandCanvas.width = 256
-          islandCanvas.height = 256
+          islandCanvas.width = 256; islandCanvas.height = 256
           islandCanvasRef.current = islandCanvas
-
           mapInstance.addSource('island-fill', {
-            type: 'canvas',
-            canvas: islandCanvas,
-            coordinates: [[0, 1], [1, 1], [1, 0], [0, 0]], // placeholder, updated on first render
+            type: 'canvas', canvas: islandCanvas,
+            coordinates: [[0, 1], [1, 1], [1, 0], [0, 0]],
             animate: false,
           } as any)
-
           mapInstance.addLayer({
-            id: 'island-fill-layer',
-            type: 'raster',
-            source: 'island-fill',
+            id: 'island-fill-layer', type: 'raster', source: 'island-fill',
             layout: { visibility: 'none' },
             paint: { 'raster-opacity': 0.6 },
           }, firstSymbolLayerId)
+
+          // Retry failed contour tiles automatically
+          let retryTimer: ReturnType<typeof setTimeout> | null = null
+          mapInstance.on('error', () => {
+            if (retryTimer) return
+            retryTimer = setTimeout(() => {
+              reloadContourTiles(mapInstance)
+              retryTimer = null
+            }, 2000)
+          })
 
           setMapIsLoaded(true)
         }}
@@ -230,11 +454,9 @@ const MapView = () => {
           setMapPosition({ longitude, latitude, zoom })
         }}
         onSourceData={(event) => {
-          if ('sourceId' in event && event.sourceId === CONTOUR_SOURCE_ID && !event.isSourceLoaded) {
-            setIsLoadingContours(true)
-          }
+          if ('isSourceLoaded' in event && !event.isSourceLoaded) setIsLoading(true)
         }}
-        onIdle={() => setIsLoadingContours(false)}
+        onIdle={() => setIsLoading(false)}
       >
         <Source id={CONTOUR_SOURCE_ID} type="vector" tiles={[contourTileUrl]} minzoom={9} maxzoom={15}>
           <Layer {...buildContourBaseLayerSpec(basemap)} />
@@ -243,64 +465,41 @@ const MapView = () => {
           )}
           <Layer {...contourHitLayerSpec} />
         </Source>
+
+        {selectedPeak && parentPeak && (
+          <Source type="geojson" data={{
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: [[selectedPeak.lng, selectedPeak.lat], [parentPeak.lng, parentPeak.lat]] },
+            properties: {},
+          }}>
+            <Layer
+              type="line"
+              paint={{ 'line-color': '#f97316', 'line-width': 1.5, 'line-opacity': 0.8, 'line-dasharray': [5, 3] } as any}
+            />
+          </Source>
+        )}
       </ReactMapGL>
 
-      <div className="absolute left-3 top-1/2 -translate-y-1/2 bg-white/90 backdrop-blur-sm rounded-xl shadow-lg p-1.5 flex flex-col gap-1">
-        {BASEMAP_OPTIONS.map(({ id, label }) => (
-          <button
-            key={id}
-            onClick={() => setBasemap(id)}
-            className={`px-3 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
-              basemap === id
-                ? 'bg-gray-900 text-white'
-                : 'text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {isLoadingContours && (
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-black/65 text-white text-[13px] font-sans px-3.5 py-1.5 pl-2.5 rounded-full flex items-center gap-2 pointer-events-none">
-          <div className="size-[14px] rounded-full border-2 border-white/30 border-t-white shrink-0 animate-contour-spin" />
-          Loading contours…
-        </div>
-      )}
-
-      {selectedElevation !== null && (
-        <div className="absolute top-4 right-4 bg-black/[0.72] text-white text-sm font-sans rounded-md overflow-hidden">
-          <div className="px-3.5 py-2 pointer-events-none">
-            Selected: <strong>{selectedElevation} m</strong>
-          </div>
-          <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
-            <button
-              onClick={() => setSelectedElevation(e => e !== null ? stepElevation(e, stepDelta, 'down') : null)}
-              className="p-1 rounded hover:bg-white/15 transition-colors cursor-pointer"
-              title={`−${stepDelta} m`}
-            >
-              <ChevronDown size={16} />
-            </button>
-            <div className="flex items-center gap-1">
-              <input
-                type="number"
-                value={stepDelta}
-                min={1}
-                onChange={e => setStepDelta(Math.max(1, Number(e.target.value)))}
-                className="w-16 bg-white/10 text-white text-xs text-center rounded px-1.5 py-1 outline-none focus:bg-white/20 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
-              />
-              <span className="text-xs text-white/60">m</span>
-            </div>
-            <button
-              onClick={() => setSelectedElevation(e => e !== null ? stepElevation(e, stepDelta, 'up') : null)}
-              className="p-1 rounded hover:bg-white/15 transition-colors cursor-pointer"
-              title={`+${stepDelta} m`}
-            >
-              <ChevronUp size={16} />
-            </button>
-          </div>
-        </div>
-      )}
+      <Sidebar
+        basemap={basemap}
+        setBasemap={setBasemap}
+        selectedElevation={selectedElevation}
+        setSelectedElevation={setSelectedElevation}
+        stepDelta={stepDelta}
+        setStepDelta={setStepDelta}
+        isLoading={isLoading}
+        phase={phase}
+        selectedPeak={selectedPeak}
+        history={history}
+        paused={paused}
+        stepInterval={stepInterval}
+        setStepInterval={setStepInterval}
+        onToggleSelectPeak={onToggleSelectPeak}
+        onCompute={onCompute}
+        onStep={onStep}
+        onTogglePause={onTogglePause}
+        onReset={onReset}
+      />
     </div>
   )
 }

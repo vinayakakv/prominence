@@ -20,29 +20,28 @@ const tileLngLat = (z: number, tx: number, ty: number): [number, number] => {
 export const getTileCanvasCoordinates = (
   z: number, xMin: number, yMin: number, xMax: number, yMax: number,
 ): [[number, number], [number, number], [number, number], [number, number]] => [
-  tileLngLat(z, xMin,     yMin),      // NW
-  tileLngLat(z, xMax + 1, yMin),      // NE
-  tileLngLat(z, xMax + 1, yMax + 1),  // SE
-  tileLngLat(z, xMin,     yMax + 1),  // SW
+  tileLngLat(z, xMin,      yMin),      // NW
+  tileLngLat(z, xMax + 1,  yMin),      // NE
+  tileLngLat(z, xMax + 1,  yMax + 1),  // SE
+  tileLngLat(z, xMin,      yMax + 1),  // SW
 ]
 
-export const renderElevationFill = async ({
-  canvas, tileZ, xMin, xMax, yMin, yMax, threshold,
+type TileFetch = { tx: number; ty: number; tile: { width: number; height: number; data: Float32Array } }
+
+export const fetchAndStitchTiles = async ({
+  tileZ, xMin, xMax, yMin, yMax,
 }: {
-  canvas: HTMLCanvasElement
   tileZ: number
   xMin: number; xMax: number
   yMin: number; yMax: number
-  threshold: number
-}): Promise<void> => {
+}): Promise<{ data: Float32Array; width: number; height: number }> => {
   const tileSize = 256
   const cols = xMax - xMin + 1
   const rows = yMax - yMin + 1
-  const stitchedW = cols * tileSize
-  const stitchedH = rows * tileSize
-  const stitched = new Float32Array(stitchedW * stitchedH)
+  const width = cols * tileSize
+  const height = rows * tileSize
+  const data = new Float32Array(width * height)
 
-  type TileFetch = { tx: number; ty: number; tile: { width: number; height: number; data: Float32Array } }
   const fetches: Promise<TileFetch>[] = []
   for (let ty = yMin; ty <= yMax; ty++) {
     for (let tx = xMin; tx <= xMax; tx++) {
@@ -60,10 +59,23 @@ export const renderElevationFill = async ({
     const rowOffset = (ty - yMin) * tileSize
     for (let row = 0; row < tileSize; row++) {
       const srcStart = row * tileSize
-      const dstStart = (rowOffset + row) * stitchedW + colOffset
-      stitched.set(tile.data.subarray(srcStart, srcStart + tileSize), dstStart)
+      const dstStart = (rowOffset + row) * width + colOffset
+      data.set(tile.data.subarray(srcStart, srcStart + tileSize), dstStart)
     }
   }
 
-  detectAndRenderIslands(canvas, stitched, stitchedW, stitchedH, threshold, tileZ, xMin, yMin)
+  return { data, width, height }
+}
+
+export const renderElevationFill = async ({
+  canvas, tileZ, xMin, xMax, yMin, yMax, threshold,
+}: {
+  canvas: HTMLCanvasElement
+  tileZ: number
+  xMin: number; xMax: number
+  yMin: number; yMax: number
+  threshold: number
+}): Promise<void> => {
+  const { data, width, height } = await fetchAndStitchTiles({ tileZ, xMin, xMax, yMin, yMax })
+  detectAndRenderIslands(canvas, data, width, height, threshold, tileZ, xMin, yMin)
 }
