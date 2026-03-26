@@ -15,12 +15,20 @@ interface MobileStatusBarProps {
 }
 
 export const MobileStatusBar = ({
-  phase, selectedPeak, selectedElevation, history,
-  onZoomToPeak, onClearPeak, onClearElevation, onToggleSelectPeak, onCompute,
+  phase,
+  selectedPeak,
+  selectedElevation,
+  history,
+  onZoomToPeak,
+  onClearPeak,
+  onClearElevation,
+  onToggleSelectPeak,
+  onCompute,
 }: MobileStatusBarProps) => {
   const lastStep = history[history.length - 1]
   const doneStep = lastStep?.done ? lastStep : null
-  const showPeakActions = !!selectedPeak && (phase === 'idle' || phase === 'ready' || phase === 'done')
+  const showPeakActions =
+    !!selectedPeak && (phase === 'idle' || phase === 'ready' || phase === 'done')
   const showElevationActions = selectedElevation !== null && !selectedPeak && phase === 'idle'
 
   let primary: string
@@ -49,7 +57,9 @@ export const MobileStatusBar = ({
   return (
     <div className="md:hidden absolute bottom-3 left-3 right-3 z-20 pointer-events-none">
       <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-md px-4 py-2.5 flex items-center gap-3 text-sm pointer-events-auto">
-        <span className={`flex-1 ${doneStep ? 'font-semibold text-green-700' : 'font-medium text-gray-800'}`}>
+        <span
+          className={`flex-1 ${doneStep ? 'font-semibold text-green-700' : 'font-medium text-gray-800'}`}
+        >
           {primary}
         </span>
         {secondary && !showPeakActions && !showElevationActions && (

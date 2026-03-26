@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronUp, ChevronDown, MapPin, Play, Pause, SkipForward, X, Menu, LocateFixed } from 'lucide-react'
+import {
+  ChevronUp,
+  ChevronDown,
+  MapPin,
+  Play,
+  Pause,
+  SkipForward,
+  X,
+  Menu,
+  LocateFixed,
+} from 'lucide-react'
 import logoUrl from '../assets/logo.svg'
 import type { ProminenceStep } from '../lib/prominenceAlgorithm'
 import { stepElevation } from '../lib/elevationStep'
@@ -35,13 +45,25 @@ interface SidebarProps {
 }
 
 export const Sidebar = ({
-  basemap, setBasemap,
-  selectedElevation, setSelectedElevation,
-  stepDelta, setStepDelta,
+  basemap,
+  setBasemap,
+  selectedElevation,
+  setSelectedElevation,
+  stepDelta,
+  setStepDelta,
   isLoading,
-  phase, selectedPeak, history, paused,
-  stepInterval, setStepInterval,
-  onToggleSelectPeak, onZoomToPeak, onCompute, onStep, onTogglePause, onReset,
+  phase,
+  selectedPeak,
+  history,
+  paused,
+  stepInterval,
+  setStepInterval,
+  onToggleSelectPeak,
+  onZoomToPeak,
+  onCompute,
+  onStep,
+  onTogglePause,
+  onReset,
 }: SidebarProps) => {
   const [open, setOpen] = useState(true)
   const traceEndRef = useRef<HTMLDivElement>(null)
@@ -69,8 +91,9 @@ export const Sidebar = ({
       )}
 
       {/* Sidebar panel */}
-      <div className={`absolute left-0 top-0 h-full w-72 bg-background shadow-2xl z-10 flex flex-col transition-transform duration-200 ${open ? 'translate-x-0' : '-translate-x-full'}`}>
-
+      <div
+        className={`absolute left-0 top-0 h-full w-72 bg-background shadow-2xl z-10 flex flex-col transition-transform duration-200 ${open ? 'translate-x-0' : '-translate-x-full'}`}
+      >
         {/* Header */}
         <div className="relative flex items-center justify-center px-3 py-3 border-b shrink-0">
           <Button
@@ -84,7 +107,9 @@ export const Sidebar = ({
           </Button>
           <div className="flex flex-col items-center gap-0.5">
             <img src={logoUrl} alt="Mountainology" className="h-8 w-auto" />
-            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Prominence</span>
+            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+              Prominence
+            </span>
           </div>
           {isLoading && (
             <div className="absolute right-3 size-3 rounded-full border border-muted-foreground/30 border-t-foreground animate-spin" />
@@ -94,12 +119,13 @@ export const Sidebar = ({
         {/* Scrollable body */}
         <div className="flex-1 min-h-0 overflow-y-auto">
           <div className="p-3 space-y-4">
-
             {/* Basemap */}
             <section>
-              <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Basemap</h3>
+              <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                Basemap
+              </h3>
               <div className="flex gap-1">
-                {(['hillshade', 'satellite'] as Basemap[]).map(id => (
+                {(['hillshade', 'satellite'] as Basemap[]).map((id) => (
                   <Button
                     key={id}
                     variant={basemap === id ? 'default' : 'outline'}
@@ -117,7 +143,9 @@ export const Sidebar = ({
 
             {/* Contour */}
             <section>
-              <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Contour</h3>
+              <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                Contour
+              </h3>
               {selectedElevation !== null ? (
                 <div className="space-y-2">
                   <div className="text-sm">
@@ -127,7 +155,9 @@ export const Sidebar = ({
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      onClick={() => setSelectedElevation(stepElevation(selectedElevation, stepDelta, 'down'))}
+                      onClick={() =>
+                        setSelectedElevation(stepElevation(selectedElevation, stepDelta, 'down'))
+                      }
                       title={`−${stepDelta} m`}
                     >
                       <ChevronDown size={14} />
@@ -136,14 +166,16 @@ export const Sidebar = ({
                       type="number"
                       value={stepDelta}
                       min={1}
-                      onChange={e => setStepDelta(Math.max(1, Number(e.target.value)))}
+                      onChange={(e) => setStepDelta(Math.max(1, Number(e.target.value)))}
                       className="w-16 text-xs text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
                     />
                     <span className="text-xs text-muted-foreground">m</span>
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      onClick={() => setSelectedElevation(stepElevation(selectedElevation, stepDelta, 'up'))}
+                      onClick={() =>
+                        setSelectedElevation(stepElevation(selectedElevation, stepDelta, 'up'))
+                      }
                       title={`+${stepDelta} m`}
                     >
                       <ChevronUp size={14} />
@@ -159,7 +191,9 @@ export const Sidebar = ({
 
             {/* Current Peak */}
             <section>
-              <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Current Peak</h3>
+              <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                Current Peak
+              </h3>
 
               {(phase === 'idle' || phase === 'selecting' || phase === 'ready') && (
                 <Button
@@ -179,10 +213,19 @@ export const Sidebar = ({
               {selectedPeak && (
                 <div className="flex items-center gap-2">
                   <div className="flex-1 text-xs text-muted-foreground bg-muted rounded-lg p-2 space-y-0.5">
-                    <div className="font-medium text-foreground">{selectedPeak.ele.toFixed(0)} m</div>
-                    <div>{selectedPeak.lat.toFixed(4)}°N &nbsp;{selectedPeak.lng.toFixed(4)}°E</div>
+                    <div className="font-medium text-foreground">
+                      {selectedPeak.ele.toFixed(0)} m
+                    </div>
+                    <div>
+                      {selectedPeak.lat.toFixed(4)}°N &nbsp;{selectedPeak.lng.toFixed(4)}°E
+                    </div>
                   </div>
-                  <Button variant="ghost" size="icon-sm" onClick={onZoomToPeak} title="Zoom to peak">
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={onZoomToPeak}
+                    title="Zoom to peak"
+                  >
                     <LocateFixed size={15} />
                   </Button>
                 </div>
@@ -193,7 +236,9 @@ export const Sidebar = ({
 
             {/* Prominence */}
             <section>
-              <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Prominence</h3>
+              <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                Prominence
+              </h3>
 
               {(phase === 'idle' || phase === 'ready') && (
                 <div className="space-y-2">
@@ -203,7 +248,7 @@ export const Sidebar = ({
                       type="number"
                       value={stepInterval}
                       min={1}
-                      onChange={e => setStepInterval(Math.max(1, Number(e.target.value)))}
+                      onChange={(e) => setStepInterval(Math.max(1, Number(e.target.value)))}
                       className="w-16 text-xs text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
                     />
                     <span className="text-xs text-muted-foreground">m</span>
@@ -223,16 +268,36 @@ export const Sidebar = ({
                 <div className="space-y-2">
                   {phase === 'running' && lastStep && !lastStep.done && (
                     <div className="text-xs text-muted-foreground text-center">
-                      Depth so far: <strong className="text-foreground">{lastStep.depthSoFar} m</strong>
+                      Depth so far:{' '}
+                      <strong className="text-foreground">{lastStep.depthSoFar} m</strong>
                     </div>
                   )}
                   <div className="flex gap-1">
                     {phase === 'running' && (
                       <>
-                        <Button variant="outline" size="sm" className="flex-1" onClick={onTogglePause}>
-                          {paused ? <><Play size={11} /> Resume</> : <><Pause size={11} /> Pause</>}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1"
+                          onClick={onTogglePause}
+                        >
+                          {paused ? (
+                            <>
+                              <Play size={11} /> Resume
+                            </>
+                          ) : (
+                            <>
+                              <Pause size={11} /> Pause
+                            </>
+                          )}
                         </Button>
-                        <Button variant="outline" size="sm" className="flex-1" disabled={!paused} onClick={onStep}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1"
+                          disabled={!paused}
+                          onClick={onStep}
+                        >
                           <SkipForward size={11} /> Step
                         </Button>
                       </>
@@ -247,11 +312,16 @@ export const Sidebar = ({
               {doneStep && (
                 <div className="mt-2 bg-green-50 border border-green-200 rounded-lg p-3 space-y-1">
                   <div className="text-xs font-semibold text-green-800">Result</div>
-                  <div className="text-sm font-bold text-green-900">{doneStep.prominence} m prominence</div>
+                  <div className="text-sm font-bold text-green-900">
+                    {doneStep.prominence} m prominence
+                  </div>
                   <div className="text-xs text-green-700">Key col: {doneStep.keyColEle} m</div>
-                  <div className="text-xs text-green-700">Parent: {doneStep.parentPeak.ele.toFixed(0)} m</div>
+                  <div className="text-xs text-green-700">
+                    Parent: {doneStep.parentPeak.ele.toFixed(0)} m
+                  </div>
                   <div className="text-xs text-green-600">
-                    {doneStep.parentPeak.lat.toFixed(4)}°N &nbsp;{doneStep.parentPeak.lng.toFixed(4)}°E
+                    {doneStep.parentPeak.lat.toFixed(4)}°N &nbsp;
+                    {doneStep.parentPeak.lng.toFixed(4)}°E
                   </div>
                 </div>
               )}
@@ -261,27 +331,28 @@ export const Sidebar = ({
               <>
                 <Separator />
                 <section>
-                  <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Trace</h3>
+                  <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                    Trace
+                  </h3>
                   <ScrollArea className="h-56">
                     <div className="space-y-0.5 text-xs font-mono pr-3">
                       {history.map((step, i) => (
                         <div
                           key={i}
-                          className={cn('px-2 py-1 rounded',
+                          className={cn(
+                            'px-2 py-1 rounded',
                             step.done
                               ? 'bg-green-100 text-green-800 font-semibold'
                               : step.expandedTiles
-                              ? 'bg-blue-50 text-blue-700'
-                              : step.touchesBoundary
-                              ? 'bg-yellow-50 text-yellow-700'
-                              : 'text-muted-foreground'
+                                ? 'bg-blue-50 text-blue-700'
+                                : step.touchesBoundary
+                                  ? 'bg-yellow-50 text-yellow-700'
+                                  : 'text-muted-foreground',
                           )}
                         >
-                          {step.done ? (
-                            `✓ ${step.keyColEle} m — parent at ${step.parentPeak.ele.toFixed(0)} m`
-                          ) : (
-                            `↓ ${step.threshold} m${step.expandedTiles ? ' ↔ expand' : step.touchesBoundary ? ' ·boundary' : ''}`
-                          )}
+                          {step.done
+                            ? `✓ ${step.keyColEle} m — parent at ${step.parentPeak.ele.toFixed(0)} m`
+                            : `↓ ${step.threshold} m${step.expandedTiles ? ' ↔ expand' : step.touchesBoundary ? ' ·boundary' : ''}`}
                         </div>
                       ))}
                       <div ref={traceEndRef} />
@@ -290,7 +361,6 @@ export const Sidebar = ({
                 </section>
               </>
             )}
-
           </div>
         </div>
 

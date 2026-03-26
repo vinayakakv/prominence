@@ -3,37 +3,51 @@ import { detectAndRenderIslands } from './islandDetector'
 
 export const lngLatToTile = (lng: number, lat: number, z: number): { x: number; y: number } => {
   const n = Math.pow(2, z)
-  const x = Math.floor((lng + 180) / 360 * n)
-  const latRad = lat * Math.PI / 180
-  const y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n)
+  const x = Math.floor(((lng + 180) / 360) * n)
+  const latRad = (lat * Math.PI) / 180
+  const y = Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n)
   return { x, y }
 }
 
 const tileLngLat = (z: number, tx: number, ty: number): [number, number] => {
   const n = Math.pow(2, z)
-  const lng = tx / n * 360 - 180
-  const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / n))) * 180 / Math.PI
+  const lng = (tx / n) * 360 - 180
+  const lat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * ty) / n))) * 180) / Math.PI
   return [lng, lat]
 }
 
 // Returns [NW, NE, SE, SW] corners for MapLibre canvas source coordinates
 export const getTileCanvasCoordinates = (
-  z: number, xMin: number, yMin: number, xMax: number, yMax: number,
+  z: number,
+  xMin: number,
+  yMin: number,
+  xMax: number,
+  yMax: number,
 ): [[number, number], [number, number], [number, number], [number, number]] => [
-  tileLngLat(z, xMin,      yMin),      // NW
-  tileLngLat(z, xMax + 1,  yMin),      // NE
-  tileLngLat(z, xMax + 1,  yMax + 1),  // SE
-  tileLngLat(z, xMin,      yMax + 1),  // SW
+  tileLngLat(z, xMin, yMin), // NW
+  tileLngLat(z, xMax + 1, yMin), // NE
+  tileLngLat(z, xMax + 1, yMax + 1), // SE
+  tileLngLat(z, xMin, yMax + 1), // SW
 ]
 
-type TileFetch = { tx: number; ty: number; tile: { width: number; height: number; data: Float32Array } }
+type TileFetch = {
+  tx: number
+  ty: number
+  tile: { width: number; height: number; data: Float32Array }
+}
 
 export const fetchAndStitchTiles = async ({
-  tileZ, xMin, xMax, yMin, yMax,
+  tileZ,
+  xMin,
+  xMax,
+  yMin,
+  yMax,
 }: {
   tileZ: number
-  xMin: number; xMax: number
-  yMin: number; yMax: number
+  xMin: number
+  xMax: number
+  yMin: number
+  yMax: number
 }): Promise<{ data: Float32Array; width: number; height: number }> => {
   const tileSize = 256
   const cols = xMax - xMin + 1
@@ -46,9 +60,7 @@ export const fetchAndStitchTiles = async ({
   for (let ty = yMin; ty <= yMax; ty++) {
     for (let tx = xMin; tx <= xMax; tx++) {
       fetches.push(
-        (demSource as any).getDemTile(tileZ, tx, ty).then(
-          (tile: TileFetch['tile']) => ({ tx, ty, tile })
-        )
+        demSource.getDemTile(tileZ, tx, ty).then((tile: TileFetch['tile']) => ({ tx, ty, tile })),
       )
     }
   }
@@ -68,14 +80,23 @@ export const fetchAndStitchTiles = async ({
 }
 
 export const renderElevationFill = async ({
-  canvas, tileZ, xMin, xMax, yMin, yMax, threshold,
+  canvas,
+  tileZ,
+  xMin,
+  xMax,
+  yMin,
+  yMax,
+  threshold,
 }: {
   canvas: HTMLCanvasElement
   tileZ: number
-  xMin: number; xMax: number
-  yMin: number; yMax: number
+  xMin: number
+  xMax: number
+  yMin: number
+  yMax: number
   threshold: number
-}): Promise<void> => {
+}): Promise<{ data: Float32Array; width: number; height: number }> => {
   const { data, width, height } = await fetchAndStitchTiles({ tileZ, xMin, xMax, yMin, yMax })
   detectAndRenderIslands(canvas, data, width, height, threshold, tileZ, xMin, yMin)
+  return { data, width, height }
 }

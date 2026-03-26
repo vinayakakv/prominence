@@ -19,8 +19,7 @@ export const islandColor = (idx: number): RGBA => {
 const colorRegistry = new Map<string, number>()
 let nextColorIdx = 0
 
-const peakKey = (lat: number, lng: number) =>
-  `${lat.toFixed(1)},${lng.toFixed(1)}`  // ~11 km grid
+const peakKey = (lat: number, lng: number) => `${lat.toFixed(1)},${lng.toFixed(1)}` // ~11 km grid
 
 export const stitchedPixelToLatLng = (
   pixelIdx: number,
@@ -35,8 +34,8 @@ export const stitchedPixelToLatLng = (
   const n = Math.pow(2, tileZ)
   const tileX = xMin + px / tileSize
   const tileY = yMin + py / tileSize
-  const lng = tileX / n * 360 - 180
-  const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * tileY / n))) * 180 / Math.PI
+  const lng = (tileX / n) * 360 - 180
+  const lat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * tileY) / n))) * 180) / Math.PI
   return { lat, lng }
 }
 
@@ -67,7 +66,8 @@ export const detectAndRenderIslands = (
     let size = 0
     let peakIdx = startIdx
     let peakEle = data[startIdx]
-    let head = 0, tail = 0
+    let head = 0,
+      tail = 0
 
     bfsQueue[tail++] = startIdx
     labels[startIdx] = componentId
@@ -75,7 +75,10 @@ export const detectAndRenderIslands = (
     while (head < tail) {
       const idx = bfsQueue[head++]
       size++
-      if (data[idx] > peakEle) { peakEle = data[idx]; peakIdx = idx }
+      if (data[idx] > peakEle) {
+        peakEle = data[idx]
+        peakIdx = idx
+      }
 
       const row = (idx / width) | 0
       const col = idx % width
@@ -119,7 +122,10 @@ export const detectAndRenderIslands = (
     if (label < 0) continue
     const [r, g, b, a] = islandColor(colorAssignment[label])
     const p = i * 4
-    pixels[p] = r; pixels[p + 1] = g; pixels[p + 2] = b; pixels[p + 3] = a
+    pixels[p] = r
+    pixels[p + 1] = g
+    pixels[p + 2] = b
+    pixels[p + 3] = a
   }
 
   ctx.putImageData(imageData, 0, 0)
@@ -148,14 +154,18 @@ export const detectIslandContaining = (
   let touchesBoundary = false
 
   const queue = new Int32Array(data.length)
-  let head = 0, tail = 0
+  let head = 0,
+    tail = 0
   queue[tail++] = seedIdx
   visited[seedIdx] = 1
 
   while (head < tail) {
     const idx = queue[head++]
     pixelsArr.push(idx)
-    if (data[idx] > maxEle) { maxEle = data[idx]; maxEleIdx = idx }
+    if (data[idx] > maxEle) {
+      maxEle = data[idx]
+      maxEleIdx = idx
+    }
 
     const row = (idx / width) | 0
     const col = idx % width
@@ -210,7 +220,10 @@ export const renderBorderToCanvas = (
   const [r, g, b, a] = color
   for (let i = 0; i < borderPixels.length; i++) {
     const p = borderPixels[i] * 4
-    pixels[p] = r; pixels[p + 1] = g; pixels[p + 2] = b; pixels[p + 3] = a
+    pixels[p] = r
+    pixels[p + 1] = g
+    pixels[p + 2] = b
+    pixels[p + 3] = a
   }
   ctx.putImageData(imageData, 0, 0)
 }

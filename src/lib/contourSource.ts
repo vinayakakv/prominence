@@ -12,12 +12,12 @@ demSource.setupMaplibre(maplibregl)
 
 export const contourTileUrl = demSource.contourProtocolUrl({
   thresholds: {
-    9:  [500, 1000],
+    9: [500, 1000],
     10: [200, 1000],
-    11: [100,  500],
-    12: [ 50,  200],
-    13: [ 20,  100],
-    14: [ 10,   50],
+    11: [100, 500],
+    12: [50, 200],
+    13: [20, 100],
+    14: [10, 50],
   },
   elevationKey: 'ele',
   levelKey: 'level',

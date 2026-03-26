@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactMapGL, { Layer, Source } from 'react-map-gl/maplibre'
 import type { LayerProps, MapRef } from 'react-map-gl/maplibre'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { Compass } from 'lucide-react'
 import { contourTileUrl } from '../lib/contourSource'
-import { renderElevationFill, fetchAndStitchTiles, getTileCanvasCoordinates, lngLatToTile } from '../lib/elevationFill'
-import { detectAndRenderIslands } from '../lib/islandDetector'
-import { stepProminence, snapToPeak } from '../lib/prominenceAlgorithm'
+import { renderElevationFill, getTileCanvasCoordinates, lngLatToTile } from '../lib/elevationFill'
+import { detectIslandContaining, stitchedPixelToLatLng } from '../lib/islandDetector'
+import { lngLatToPixelIdx, snapToPeak } from '../lib/prominenceAlgorithm'
 import type { ProminenceContext, ProminenceStep } from '../lib/prominenceAlgorithm'
 import { Sidebar } from './Sidebar'
 import { MobileStatusBar } from './MobileStatusBar'
@@ -15,7 +15,9 @@ import type { Phase } from './Sidebar'
 
 const BASE_MAP_STYLE = 'https://tiles.openfreemap.org/styles/positron'
 const TERRARIUM_TILES = ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png']
-const SATELLITE_TILES = ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}']
+const SATELLITE_TILES = [
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+]
 const DEFAULT_VIEW = { longitude: 75.35236, latitude: 13.23472, zoom: 12 }
 
 const CONTOUR_SOURCE_ID = 'contour'
@@ -45,8 +47,7 @@ const buildContourBaseLayerSpec = (basemap: Basemap): LayerProps => ({
   paint: {
     'line-color': (basemap === 'satellite'
       ? ['case', ['==', ['get', 'level'], 1], '#ffffff', 'rgba(255,255,255,0.55)']
-      : ['case', ['==', ['get', 'level'], 1], '#666666', '#aaaaaa']
-    ) as unknown as string,
+      : ['case', ['==', ['get', 'level'], 1], '#666666', '#aaaaaa']) as unknown as string,
     'line-width': ['case', ['==', ['get', 'level'], 1], 1.5, 0.75] as unknown as number,
     'line-opacity': 0.9,
   },
@@ -82,15 +83,16 @@ const parseUrlParams = () => {
     zoom: isNaN(parsedZoom) ? DEFAULT_VIEW.zoom : parsedZoom,
     selectedContour: isNaN(parsedContour) ? null : parsedContour,
     basemap: (parsedBasemap === 'satellite' ? 'satellite' : 'hillshade') as Basemap,
-    savedPeak: (!isNaN(parsedPeakLat) && !isNaN(parsedPeakLng) && !isNaN(parsedPeakEle))
-      ? { lat: parsedPeakLat, lng: parsedPeakLng, ele: parsedPeakEle }
-      : null,
+    savedPeak:
+      !isNaN(parsedPeakLat) && !isNaN(parsedPeakLng) && !isNaN(parsedPeakEle)
+        ? { lat: parsedPeakLat, lng: parsedPeakLng, ele: parsedPeakEle }
+        : null,
   }
 }
 
 const reloadContourTiles = (map: maplibregl.Map) => {
   try {
-    (map as any).style.sourceCaches?.[CONTOUR_SOURCE_ID]?.reload()
+    map.style.sourceCaches?.[CONTOUR_SOURCE_ID]?.reload()
   } catch {}
 }
 
@@ -100,17 +102,33 @@ const createMarkerEl = (color: string) => {
   return el
 }
 
+const MIN_ISLAND_PIXELS = 20
+
+type FillResult = {
+  island: ReturnType<typeof detectIslandContaining>
+  threshold: number
+  tileZ: number
+  xMin: number
+  xMax: number
+  yMin: number
+  yMax: number
+  width: number
+  height: number
+}
+
 const MapView = () => {
   const mapRef = useRef<MapRef>(null)
   const islandCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const peakMarkerRef = useRef<maplibregl.Marker | null>(null)
   const parentMarkerRef = useRef<maplibregl.Marker | null>(null)
-  const steppingRef = useRef(false)
+  const prominenceCtxRef = useRef<ProminenceContext | null>(null)
 
   const [initialParams] = useState(parseUrlParams)
 
   // Map state
-  const [selectedElevation, setSelectedElevation] = useState<number | null>(initialParams.selectedContour)
+  const [selectedElevation, setSelectedElevation] = useState<number | null>(
+    initialParams.selectedContour,
+  )
   const [stepDelta, setStepDelta] = useState(100)
   const [isLoading, setIsLoading] = useState(true)
   const [mapIsLoaded, setMapIsLoaded] = useState(false)
@@ -123,12 +141,19 @@ const MapView = () => {
 
   // Prominence state
   const [phase, setPhase] = useState<Phase>(initialParams.savedPeak ? 'ready' : 'idle')
-  const [selectedPeak, setSelectedPeak] = useState<{ lat: number; lng: number; ele: number } | null>(initialParams.savedPeak)
+  const [selectedPeak, setSelectedPeak] = useState<{
+    lat: number
+    lng: number
+    ele: number
+  } | null>(initialParams.savedPeak)
   const [prominenceCtx, setProminenceCtx] = useState<ProminenceContext | null>(null)
+  const [fillResult, setFillResult] = useState<FillResult | null>(null)
   const [history, setHistory] = useState<ProminenceStep[]>([])
   const [paused, setPaused] = useState(false)
   const [stepInterval, setStepInterval] = useState(20)
-  const [parentPeak, setParentPeak] = useState<{ lat: number; lng: number; ele: number } | null>(null)
+  const [parentPeak, setParentPeak] = useState<{ lat: number; lng: number; ele: number } | null>(
+    null,
+  )
 
   // URL param sync
   useEffect(() => {
@@ -151,8 +176,16 @@ const MapView = () => {
     if (!mapIsLoaded) return
     const map = mapRef.current?.getMap()
     if (!map) return
-    map.setLayoutProperty('terrain-hillshade', 'visibility', basemap === 'hillshade' ? 'visible' : 'none')
-    map.setLayoutProperty('satellite-layer', 'visibility', basemap === 'satellite' ? 'visible' : 'none')
+    map.setLayoutProperty(
+      'terrain-hillshade',
+      'visibility',
+      basemap === 'hillshade' ? 'visible' : 'none',
+    )
+    map.setLayoutProperty(
+      'satellite-layer',
+      'visibility',
+      basemap === 'satellite' ? 'visible' : 'none',
+    )
   }, [basemap, mapIsLoaded])
 
   // Crosshair cursor during peak selection
@@ -161,10 +194,9 @@ const MapView = () => {
     if (canvas) canvas.style.cursor = phase === 'selecting' ? 'crosshair' : ''
   }, [phase])
 
-  // Normal island fill (disabled during prominence run)
+  // Island fill — runs for all elevation selections including during prominence
   useEffect(() => {
     if (!mapIsLoaded) return
-    if (phase === 'running') return
 
     const map = mapRef.current?.getMap()
     const canvas = islandCanvasRef.current
@@ -187,17 +219,128 @@ const MapView = () => {
 
     let cancelled = false
     renderElevationFill({ canvas, tileZ, xMin, xMax, yMin, yMax, threshold: selectedElevation })
-      .then(() => {
+      .then(({ data, width, height }) => {
         if (cancelled) return
         const source = map.getSource('island-fill') as any
         source.setCoordinates(getTileCanvasCoordinates(tileZ, xMin, yMin, xMax, yMax))
         source.play()
-        requestAnimationFrame(() => { if (!cancelled) source.pause() })
+        requestAnimationFrame(() => {
+          if (!cancelled) source.pause()
+        })
         map.setLayoutProperty('island-fill-layer', 'visibility', 'visible')
+
+        // During prominence: detect the peak's island and signal the algorithm
+        const ctx = prominenceCtxRef.current
+        if (ctx && phase === 'running') {
+          const seedIdx = lngLatToPixelIdx(
+            ctx.peakLat,
+            ctx.peakLng,
+            tileZ,
+            xMin,
+            yMin,
+            width,
+            height,
+          )
+          const island = detectIslandContaining(data, width, height, ctx.currentThreshold, seedIdx)
+          setFillResult({
+            island,
+            threshold: ctx.currentThreshold,
+            tileZ,
+            xMin,
+            xMax,
+            yMin,
+            yMax,
+            width,
+            height,
+          })
+        }
       })
       .catch(() => {})
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [selectedElevation, mapPosition, mapIsLoaded, phase])
+
+  // Algorithm advance — reactive state machine driven by fillResult
+  useEffect(() => {
+    if (phase !== 'running' || !fillResult || !prominenceCtx || paused) return
+    if (fillResult.threshold !== prominenceCtx.currentThreshold) return
+
+    const { island, threshold, tileZ, xMin, xMax, yMin, yMax, width } = fillResult
+    const { peakEle, stepInterval } = prominenceCtx
+
+    setFillResult(null)
+
+    if (!island) {
+      // Peak not in island — lower threshold
+      const next = threshold - stepInterval
+      const nextCtx = { ...prominenceCtx, currentThreshold: next }
+      prominenceCtxRef.current = nextCtx
+      setProminenceCtx(nextCtx)
+      setSelectedElevation(next)
+      return
+    }
+
+    // Parent peak found
+    if (island.maxEle > peakEle && island.pixels.length >= MIN_ISLAND_PIXELS) {
+      const parentLatLng = stitchedPixelToLatLng(island.maxEleIdx, width, tileZ, xMin, yMin)
+      const doneStep: ProminenceStep = {
+        threshold,
+        done: true,
+        keyColEle: threshold,
+        prominence: peakEle - threshold,
+        parentPeak: { ...parentLatLng, ele: island.maxEle },
+      }
+      setHistory((h) => [...h, doneStep])
+      setPhase('done')
+      setParentPeak({ ...parentLatLng, ele: island.maxEle })
+      return
+    }
+
+    // Island touches viewport boundary → expand by zooming out
+    if (island.touchesBoundary) {
+      setHistory((h) => [
+        ...h,
+        {
+          threshold,
+          touchesBoundary: true,
+          expandedTiles: false,
+          depthSoFar: peakEle - threshold,
+          done: false,
+        },
+      ])
+      const map = mapRef.current?.getMap()
+      if (map) {
+        const coords = getTileCanvasCoordinates(tileZ, xMin, yMin, xMax, yMax)
+        const sw: [number, number] = [coords[3][0], coords[2][1]]
+        const ne: [number, number] = [coords[1][0], coords[0][1]]
+        setPaused(true)
+        map.fitBounds([sw, ne], { padding: 80, duration: 700 })
+        map.once('idle', () => {
+          reloadContourTiles(map)
+          setPaused(false)
+        })
+      }
+      return
+    }
+
+    // Normal step — lower threshold
+    setHistory((h) => [
+      ...h,
+      {
+        threshold,
+        touchesBoundary: false,
+        expandedTiles: false,
+        depthSoFar: peakEle - threshold,
+        done: false,
+      },
+    ])
+    const next = threshold - stepInterval
+    const nextCtx = { ...prominenceCtx, currentThreshold: next }
+    prominenceCtxRef.current = nextCtx
+    setProminenceCtx(nextCtx)
+    setSelectedElevation(next)
+  }, [fillResult, phase, paused, prominenceCtx])
 
   // Peak marker
   useEffect(() => {
@@ -223,78 +366,6 @@ const MapView = () => {
       .addTo(map)
   }, [parentPeak, mapIsLoaded])
 
-  const renderProminenceCanvases = useCallback((
-    data: Float32Array, width: number, height: number,
-    threshold: number, tileZ: number, xMin: number, yMin: number, xMax: number, yMax: number,
-  ) => {
-    const map = mapRef.current?.getMap()
-    const fillCanvas = islandCanvasRef.current
-    if (!map || !fillCanvas) return
-
-    detectAndRenderIslands(fillCanvas, data, width, height, threshold, tileZ, xMin, yMin)
-    const fillSource = map.getSource('island-fill') as any
-    fillSource.setCoordinates(getTileCanvasCoordinates(tileZ, xMin, yMin, xMax, yMax))
-    fillSource.play()
-    requestAnimationFrame(() => fillSource.pause())
-    map.setLayoutProperty('island-fill-layer', 'visibility', 'visible')
-  }, [])
-
-  const executeStep = useCallback(async (ctx: ProminenceContext) => {
-    if (steppingRef.current) return
-    steppingRef.current = true
-    try {
-      const { ctx: nextCtx, step, data, width, height } = await stepProminence(ctx)
-      const { tileZ, xMin, yMin, xMax, yMax } = nextCtx
-      const threshold = step.done ? step.keyColEle : ctx.currentThreshold
-
-      renderProminenceCanvases(data, width, height, threshold, tileZ, xMin, yMin, xMax, yMax)
-
-      // Keep URL contour param and selected contour highlight in sync with current threshold
-      setSelectedElevation(threshold)
-
-      // Zoom map to show expanded tile coverage, pause until animation + tile load settles
-      if (!step.done && step.expandedTiles) {
-        const coords = getTileCanvasCoordinates(nextCtx.tileZ, nextCtx.xMin, nextCtx.yMin, nextCtx.xMax, nextCtx.yMax)
-        const swLng = coords[3][0], swLat = coords[2][1]
-        const neLng = coords[1][0], neLat = coords[0][1]
-        const map = mapRef.current?.getMap()
-        if (map) {
-          setPaused(true)
-          map.fitBounds([[swLng, swLat], [neLng, neLat]], { padding: 40, duration: 700 })
-          map.once('idle', () => {
-            renderProminenceCanvases(data, width, height, threshold, nextCtx.tileZ, nextCtx.xMin, nextCtx.yMin, nextCtx.xMax, nextCtx.yMax)
-            reloadContourTiles(map)
-            setPaused(false)
-          })
-        }
-      }
-
-      setHistory(h => [...h, step])
-
-      if (step.done) {
-        setPhase('done')
-        setParentPeak(step.parentPeak)
-        setProminenceCtx(nextCtx)
-      } else {
-        setProminenceCtx(nextCtx)
-      }
-    } catch {
-      setPaused(true)
-    } finally {
-      steppingRef.current = false
-    }
-  }, [renderProminenceCanvases])
-
-  // Auto-run prominence steps
-  useEffect(() => {
-    if (phase !== 'running' || paused || !prominenceCtx) return
-    let cancelled = false
-    const timer = setTimeout(() => {
-      if (!cancelled) executeStep(prominenceCtx)
-    }, 80)
-    return () => { cancelled = true; clearTimeout(timer) }
-  }, [phase, paused, prominenceCtx, executeStep])
-
   const onToggleSelectPeak = () => {
     if (phase === 'selecting') {
       setPhase(selectedPeak ? 'ready' : 'idle')
@@ -305,55 +376,36 @@ const MapView = () => {
 
   const onCompute = () => {
     if (!selectedPeak || !mapIsLoaded) return
-    const map = mapRef.current?.getMap()
-    if (!map) return
-
-    const tileZ = Math.min(Math.floor(mapPosition.zoom), 13)
-    const bounds = map.getBounds()
-    const maxTile = Math.pow(2, tileZ) - 1
-    const sw = lngLatToTile(bounds.getWest(), bounds.getSouth(), tileZ)
-    const ne = lngLatToTile(bounds.getEast(), bounds.getNorth(), tileZ)
-
+    const startThreshold = selectedPeak.ele - stepInterval
     const ctx: ProminenceContext = {
       peakLat: selectedPeak.lat,
       peakLng: selectedPeak.lng,
       peakEle: selectedPeak.ele,
-      tileZ,
-      xMin: Math.max(0, Math.min(sw.x, ne.x)),
-      xMax: Math.min(maxTile, Math.max(sw.x, ne.x)),
-      yMin: Math.max(0, Math.min(sw.y, ne.y)),
-      yMax: Math.min(maxTile, Math.max(sw.y, ne.y)),
       stepInterval,
-      currentThreshold: selectedPeak.ele - stepInterval,
+      currentThreshold: startThreshold,
     }
-
-    // Render fill snapshot at starting elevation before first step
-    if (selectedElevation !== null) {
-      const { xMin: cx, xMax: cX, yMin: cy, yMax: cY } = ctx
-      fetchAndStitchTiles({ tileZ, xMin: cx, xMax: cX, yMin: cy, yMax: cY })
-        .then(({ data, width, height }) => {
-          renderProminenceCanvases(data, width, height, ctx.currentThreshold, tileZ, cx, cy, cX, cY)
-        })
-        .catch(() => {})
-    }
-
+    prominenceCtxRef.current = ctx
     setProminenceCtx(ctx)
+    setSelectedElevation(startThreshold)
     setHistory([])
     setParentPeak(null)
+    setFillResult(null)
     setPaused(false)
     setPhase('running')
   }
 
   const onStep = () => {
-    if (!prominenceCtx || phase !== 'running') return
-    executeStep(prominenceCtx)
+    if (phase !== 'running' || !paused) return
+    setPaused(false)
   }
 
-  const onTogglePause = () => setPaused(p => !p)
+  const onTogglePause = () => setPaused((p) => !p)
 
   const onReset = () => {
+    prominenceCtxRef.current = null
     setPhase(selectedPeak ? 'ready' : 'idle')
     setProminenceCtx(null)
+    setFillResult(null)
     setHistory([])
     setPaused(false)
     setParentPeak(null)
@@ -367,7 +419,11 @@ const MapView = () => {
     <div className="w-screen h-dvh relative">
       <ReactMapGL
         ref={mapRef}
-        initialViewState={{ longitude: initialParams.longitude, latitude: initialParams.latitude, zoom: initialParams.zoom }}
+        initialViewState={{
+          longitude: initialParams.longitude,
+          latitude: initialParams.latitude,
+          zoom: initialParams.zoom,
+        }}
         style={{ width: '100%', height: '100%' }}
         mapStyle={BASE_MAP_STYLE}
         interactiveLayerIds={[CONTOUR_HIT_LAYER_ID]}
@@ -378,7 +434,7 @@ const MapView = () => {
             setPhase('ready')
             setSelectedPeak(null)
             snapToPeak(lat, lng, tileZ)
-              .then(peak => setSelectedPeak(peak))
+              .then((peak) => setSelectedPeak(peak))
               .catch(() => setPhase('selecting'))
             return
           }
@@ -388,7 +444,9 @@ const MapView = () => {
         }}
         onLoad={(event) => {
           const mapInstance = event.target
-          const firstSymbolLayerId = mapInstance.getStyle().layers?.find(layer => layer.type === 'symbol')?.id
+          const firstSymbolLayerId = mapInstance
+            .getStyle()
+            .layers?.find((layer) => layer.type === 'symbol')?.id
 
           mapInstance.addSource('satellite', {
             type: 'raster',
@@ -396,12 +454,15 @@ const MapView = () => {
             tileSize: 256,
             maxzoom: 19,
           })
-          mapInstance.addLayer({
-            id: 'satellite-layer',
-            type: 'raster',
-            source: 'satellite',
-            layout: { visibility: 'none' },
-          }, firstSymbolLayerId)
+          mapInstance.addLayer(
+            {
+              id: 'satellite-layer',
+              type: 'raster',
+              source: 'satellite',
+              layout: { visibility: 'none' },
+            },
+            firstSymbolLayerId,
+          )
 
           mapInstance.addSource('terrain-dem', {
             type: 'raster-dem',
@@ -410,34 +471,49 @@ const MapView = () => {
             tileSize: 256,
             maxzoom: 13,
           })
-          mapInstance.addLayer({
-            id: 'terrain-hillshade',
-            type: 'hillshade',
-            source: 'terrain-dem',
-            layout: { visibility: 'visible' },
-            paint: {
-              'hillshade-exaggeration': 0.5,
-              'hillshade-illumination-direction': 335,
-              'hillshade-shadow-color': '#3d2f1e',
-              'hillshade-highlight-color': '#ffffff',
-              'hillshade-accent-color': '#3d2f1e',
+          mapInstance.addLayer(
+            {
+              id: 'terrain-hillshade',
+              type: 'hillshade',
+              source: 'terrain-dem',
+              layout: { visibility: 'visible' },
+              paint: {
+                'hillshade-exaggeration': 0.5,
+                'hillshade-illumination-direction': 335,
+                'hillshade-shadow-color': '#3d2f1e',
+                'hillshade-highlight-color': '#ffffff',
+                'hillshade-accent-color': '#3d2f1e',
+              },
             },
-          }, firstSymbolLayerId)
+            firstSymbolLayerId,
+          )
 
           // Island fill canvas
           const islandCanvas = document.createElement('canvas')
-          islandCanvas.width = 256; islandCanvas.height = 256
+          islandCanvas.width = 256
+          islandCanvas.height = 256
           islandCanvasRef.current = islandCanvas
           mapInstance.addSource('island-fill', {
-            type: 'canvas', canvas: islandCanvas,
-            coordinates: [[0, 1], [1, 1], [1, 0], [0, 0]],
+            type: 'canvas',
+            canvas: islandCanvas,
+            coordinates: [
+              [0, 1],
+              [1, 1],
+              [1, 0],
+              [0, 0],
+            ],
             animate: false,
           } as any)
-          mapInstance.addLayer({
-            id: 'island-fill-layer', type: 'raster', source: 'island-fill',
-            layout: { visibility: 'none' },
-            paint: { 'raster-opacity': 0.6 },
-          }, firstSymbolLayerId)
+          mapInstance.addLayer(
+            {
+              id: 'island-fill-layer',
+              type: 'raster',
+              source: 'island-fill',
+              layout: { visibility: 'none' },
+              paint: { 'raster-opacity': 0.6 },
+            },
+            firstSymbolLayerId,
+          )
 
           // Retry failed contour tiles automatically
           let retryTimer: ReturnType<typeof setTimeout> | null = null
@@ -460,23 +536,43 @@ const MapView = () => {
         }}
         onIdle={() => setIsLoading(false)}
       >
-        <Source id={CONTOUR_SOURCE_ID} type="vector" tiles={[contourTileUrl]} minzoom={9} maxzoom={15}>
+        <Source
+          id={CONTOUR_SOURCE_ID}
+          type="vector"
+          tiles={[contourTileUrl]}
+          minzoom={9}
+          maxzoom={15}
+        >
           <Layer {...buildContourBaseLayerSpec(basemap)} />
-          {selectedElevation !== null && (
-            <Layer {...buildSelectedLayerSpec(selectedElevation)} />
-          )}
+          {selectedElevation !== null && <Layer {...buildSelectedLayerSpec(selectedElevation)} />}
           <Layer {...contourHitLayerSpec} />
         </Source>
 
         {selectedPeak && parentPeak && (
-          <Source type="geojson" data={{
-            type: 'Feature',
-            geometry: { type: 'LineString', coordinates: [[selectedPeak.lng, selectedPeak.lat], [parentPeak.lng, parentPeak.lat]] },
-            properties: {},
-          }}>
+          <Source
+            type="geojson"
+            data={{
+              type: 'Feature',
+              geometry: {
+                type: 'LineString',
+                coordinates: [
+                  [selectedPeak.lng, selectedPeak.lat],
+                  [parentPeak.lng, parentPeak.lat],
+                ],
+              },
+              properties: {},
+            }}
+          >
             <Layer
               type="line"
-              paint={{ 'line-color': '#f97316', 'line-width': 1.5, 'line-opacity': 0.8, 'line-dasharray': [5, 3] } as any}
+              paint={
+                {
+                  'line-color': '#f97316',
+                  'line-width': 1.5,
+                  'line-opacity': 0.8,
+                  'line-dasharray': [5, 3],
+                } as any
+              }
             />
           </Source>
         )}
@@ -497,7 +593,9 @@ const MapView = () => {
         history={history}
         onZoomToPeak={() => {
           if (!selectedPeak) return
-          mapRef.current?.getMap()?.flyTo({ center: [selectedPeak.lng, selectedPeak.lat], zoom: 13, duration: 800 })
+          mapRef.current
+            ?.getMap()
+            ?.flyTo({ center: [selectedPeak.lng, selectedPeak.lat], zoom: 13, duration: 800 })
         }}
         onClearPeak={() => {
           setSelectedPeak(null)
@@ -531,7 +629,9 @@ const MapView = () => {
         onToggleSelectPeak={onToggleSelectPeak}
         onZoomToPeak={() => {
           if (!selectedPeak) return
-          mapRef.current?.getMap()?.flyTo({ center: [selectedPeak.lng, selectedPeak.lat], zoom: 13, duration: 800 })
+          mapRef.current
+            ?.getMap()
+            ?.flyTo({ center: [selectedPeak.lng, selectedPeak.lat], zoom: 13, duration: 800 })
         }}
         onCompute={onCompute}
         onStep={onStep}
