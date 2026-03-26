@@ -10,6 +10,7 @@ import { detectAndRenderIslands } from '../lib/islandDetector'
 import { stepProminence, snapToPeak } from '../lib/prominenceAlgorithm'
 import type { ProminenceContext, ProminenceStep } from '../lib/prominenceAlgorithm'
 import { Sidebar } from './Sidebar'
+import { MobileStatusBar } from './MobileStatusBar'
 import type { Phase } from './Sidebar'
 
 const BASE_MAP_STYLE = 'https://tiles.openfreemap.org/styles/positron'
@@ -488,6 +489,30 @@ const MapView = () => {
       >
         <Compass size={18} />
       </button>
+
+      <MobileStatusBar
+        phase={phase}
+        selectedPeak={selectedPeak}
+        selectedElevation={selectedElevation}
+        history={history}
+        onZoomToPeak={() => {
+          if (!selectedPeak) return
+          mapRef.current?.getMap()?.flyTo({ center: [selectedPeak.lng, selectedPeak.lat], zoom: 13, duration: 800 })
+        }}
+        onClearPeak={() => {
+          setSelectedPeak(null)
+          setPhase('idle')
+          setProminenceCtx(null)
+          setHistory([])
+          setPaused(false)
+          setParentPeak(null)
+          const map = mapRef.current?.getMap()
+          if (map && mapIsLoaded) map.setLayoutProperty('island-fill-layer', 'visibility', 'none')
+        }}
+        onClearElevation={() => setSelectedElevation(null)}
+        onToggleSelectPeak={onToggleSelectPeak}
+        onCompute={onCompute}
+      />
 
       <Sidebar
         basemap={basemap}
