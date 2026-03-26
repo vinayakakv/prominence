@@ -293,6 +293,18 @@ export const Sidebar = ({
 
           </div>
         </div>
+
+        {/* Footer */}
+        <div className="border-t px-4 py-2 shrink-0">
+          <a
+            href="https://github.com/vinayakakv/prominence"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            View source
+          </a>
+        </div>
       </div>
     </>
   )
