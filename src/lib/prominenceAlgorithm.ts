@@ -52,7 +52,7 @@ export const snapToPeak = async (
 ): Promise<{ lat: number; lng: number; ele: number }> => {
   const clampedZ = Math.min(Math.max(tileZ, 1), 13)
   const { x, y } = lngLatToTile(lng, lat, clampedZ)
-  const maxTile = Math.pow(2, clampedZ) - 1
+  const maxTile = 2 ** clampedZ - 1
   const xMin = Math.max(0, x - 1)
   const xMax = Math.min(maxTile, x + 1)
   const yMin = Math.max(0, y - 1)
@@ -68,7 +68,7 @@ export const snapToPeak = async (
   const seedIdx = lngLatToPixelIdx(lat, lng, clampedZ, xMin, yMin, width, height)
 
   // Search radius ~500m in pixels
-  const metersPerPixel = 40075000 / (TILE_SIZE * Math.pow(2, clampedZ))
+  const metersPerPixel = 40075000 / (TILE_SIZE * 2 ** clampedZ)
   const sr = Math.min(30, Math.max(2, Math.round(500 / metersPerPixel)))
 
   const seedRow = (seedIdx / width) | 0

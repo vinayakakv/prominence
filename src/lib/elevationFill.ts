@@ -2,7 +2,7 @@ import { demSource } from './contourSource'
 import { detectAndRenderIslands } from './islandDetector'
 
 export const lngLatToTile = (lng: number, lat: number, z: number): { x: number; y: number } => {
-  const n = Math.pow(2, z)
+  const n = 2 ** z
   const x = Math.floor(((lng + 180) / 360) * n)
   const latRad = (lat * Math.PI) / 180
   const y = Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n)
@@ -10,7 +10,7 @@ export const lngLatToTile = (lng: number, lat: number, z: number): { x: number; 
 }
 
 const tileLngLat = (z: number, tx: number, ty: number): [number, number] => {
-  const n = Math.pow(2, z)
+  const n = 2 ** z
   const lng = (tx / n) * 360 - 180
   const lat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * ty) / n))) * 180) / Math.PI
   return [lng, lat]

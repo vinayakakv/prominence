@@ -5,7 +5,7 @@ export const demSource = new mlContour.DemSource({
   url: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
   encoding: 'terrarium',
   maxzoom: 13,
-  worker: false,
+  worker: true,
 })
 
 demSource.setupMaplibre(maplibregl)
