@@ -209,7 +209,7 @@ const MapView = () => {
 
     const tileZ = Math.min(Math.floor(mapPosition.zoom), 13)
     const bounds = map.getBounds()
-    const maxTile = Math.pow(2, tileZ) - 1
+    const maxTile = 2 ** tileZ - 1
     const sw = lngLatToTile(bounds.getWest(), bounds.getSouth(), tileZ)
     const ne = lngLatToTile(bounds.getEast(), bounds.getNorth(), tileZ)
     const xMin = Math.max(0, Math.min(sw.x, ne.x))
@@ -503,7 +503,7 @@ const MapView = () => {
               [0, 0],
             ],
             animate: false,
-          } as any)
+          })
           mapInstance.addLayer(
             {
               id: 'island-fill-layer',
@@ -565,20 +565,19 @@ const MapView = () => {
           >
             <Layer
               type="line"
-              paint={
-                {
-                  'line-color': '#f97316',
-                  'line-width': 1.5,
-                  'line-opacity': 0.8,
-                  'line-dasharray': [5, 3],
-                } as any
-              }
+              paint={{
+                'line-color': '#f97316',
+                'line-width': 1.5,
+                'line-opacity': 0.8,
+                'line-dasharray': [5, 3],
+              }}
             />
           </Source>
         )}
       </ReactMapGL>
 
       <button
+        type="button"
         onClick={() => mapRef.current?.getMap()?.resetNorth({ duration: 500 })}
         className="absolute right-3 top-3 z-20 bg-white/90 backdrop-blur-sm rounded-lg shadow-md p-2 text-gray-700 hover:bg-white transition-colors"
         title="Reset to north"

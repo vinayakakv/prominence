@@ -69,6 +69,7 @@ export const MobileStatusBar = ({
           <div className="flex items-center gap-1 shrink-0">
             <span className="text-xs text-gray-500 mr-1">{secondary}</span>
             <button
+              type="button"
               onClick={onToggleSelectPeak}
               className="p-2 rounded-lg text-gray-600 hover:bg-black/5 active:bg-black/10"
               title="Select peak"
@@ -76,6 +77,7 @@ export const MobileStatusBar = ({
               <MapPin size={16} />
             </button>
             <button
+              type="button"
               onClick={onClearElevation}
               className="p-2 rounded-lg text-gray-600 hover:bg-black/5 active:bg-black/10"
               title="Clear contour"
@@ -88,6 +90,7 @@ export const MobileStatusBar = ({
           <div className="flex items-center gap-1 shrink-0">
             <span className="text-xs text-gray-500 mr-1">{secondary}</span>
             <button
+              type="button"
               onClick={onZoomToPeak}
               className="p-2 rounded-lg text-gray-600 hover:bg-black/5 active:bg-black/10"
               title="Zoom to peak"
@@ -96,6 +99,7 @@ export const MobileStatusBar = ({
             </button>
             {phase === 'ready' && (
               <button
+                type="button"
                 onClick={onCompute}
                 className="p-2 rounded-lg text-orange-500 hover:bg-orange-50 active:bg-orange-100"
                 title="Compute prominence"
@@ -104,6 +108,7 @@ export const MobileStatusBar = ({
               </button>
             )}
             <button
+              type="button"
               onClick={onClearPeak}
               className="p-2 rounded-lg text-gray-600 hover:bg-black/5 active:bg-black/10"
               title="Clear peak"
