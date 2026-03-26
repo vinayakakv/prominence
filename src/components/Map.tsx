@@ -3,6 +3,7 @@ import ReactMapGL, { Layer, Source } from 'react-map-gl/maplibre'
 import type { LayerProps, MapRef } from 'react-map-gl/maplibre'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import { Compass } from 'lucide-react'
 import { contourTileUrl } from '../lib/contourSource'
 import { renderElevationFill, fetchAndStitchTiles, getTileCanvasCoordinates, lngLatToTile } from '../lib/elevationFill'
 import { detectAndRenderIslands } from '../lib/islandDetector'
@@ -480,6 +481,14 @@ const MapView = () => {
         )}
       </ReactMapGL>
 
+      <button
+        onClick={() => mapRef.current?.getMap()?.resetNorth({ duration: 500 })}
+        className="absolute right-3 top-3 z-20 bg-white/90 backdrop-blur-sm rounded-lg shadow-md p-2 text-gray-700 hover:bg-white transition-colors"
+        title="Reset to north"
+      >
+        <Compass size={18} />
+      </button>
+
       <Sidebar
         basemap={basemap}
         setBasemap={setBasemap}
@@ -495,6 +504,10 @@ const MapView = () => {
         stepInterval={stepInterval}
         setStepInterval={setStepInterval}
         onToggleSelectPeak={onToggleSelectPeak}
+        onZoomToPeak={() => {
+          if (!selectedPeak) return
+          mapRef.current?.getMap()?.flyTo({ center: [selectedPeak.lng, selectedPeak.lat], zoom: 13, duration: 800 })
+        }}
         onCompute={onCompute}
         onStep={onStep}
         onTogglePause={onTogglePause}
