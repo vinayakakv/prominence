@@ -363,7 +363,7 @@ const MapView = () => {
   }
 
   return (
-    <div className="w-screen h-screen relative">
+    <div className="w-screen h-dvh relative">
       <ReactMapGL
         ref={mapRef}
         initialViewState={{ longitude: initialParams.longitude, latitude: initialParams.latitude, zoom: initialParams.zoom }}
