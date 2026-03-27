@@ -1,54 +1,54 @@
 import { demSource } from './contourSource'
 import { detectAndRenderIslands } from './islandDetector'
 
-export const lngLatToTile = (lng: number, lat: number, z: number): { x: number; y: number } => {
-  const n = 2 ** z
-  const x = Math.floor(((lng + 180) / 360) * n)
+export const lngLatToTile = (args: { lng: number; lat: number; zoomLevel: number }) => {
+  const { lng, lat, zoomLevel } = args
+  const tileCount = 2 ** zoomLevel
+  const x = Math.floor(((lng + 180) / 360) * tileCount)
   const latRad = (lat * Math.PI) / 180
-  const y = Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n)
+  const y = Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * tileCount)
   return { x, y }
 }
 
-const tileLngLat = (z: number, tx: number, ty: number): [number, number] => {
-  const n = 2 ** z
-  const lng = (tx / n) * 360 - 180
-  const lat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * ty) / n))) * 180) / Math.PI
+const tileLngLat = (args: { zoomLevel: number; tileX: number; tileY: number }): [number, number] => {
+  const { zoomLevel, tileX, tileY } = args
+  const tileCount = 2 ** zoomLevel
+  const lng = (tileX / tileCount) * 360 - 180
+  const lat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * tileY) / tileCount))) * 180) / Math.PI
   return [lng, lat]
 }
 
 // Returns [NW, NE, SE, SW] corners for MapLibre canvas source coordinates
-export const getTileCanvasCoordinates = (
-  z: number,
-  xMin: number,
-  yMin: number,
-  xMax: number,
-  yMax: number,
-): [[number, number], [number, number], [number, number], [number, number]] => [
-  tileLngLat(z, xMin, yMin), // NW
-  tileLngLat(z, xMax + 1, yMin), // NE
-  tileLngLat(z, xMax + 1, yMax + 1), // SE
-  tileLngLat(z, xMin, yMax + 1), // SW
-]
+export const getTileCanvasCoordinates = (args: {
+  zoomLevel: number
+  xMin: number
+  yMin: number
+  xMax: number
+  yMax: number
+}): [[number, number], [number, number], [number, number], [number, number]] => {
+  const { zoomLevel, xMin, yMin, xMax, yMax } = args
+  return [
+    tileLngLat({ zoomLevel, tileX: xMin, tileY: yMin }), // NW
+    tileLngLat({ zoomLevel, tileX: xMax + 1, tileY: yMin }), // NE
+    tileLngLat({ zoomLevel, tileX: xMax + 1, tileY: yMax + 1 }), // SE
+    tileLngLat({ zoomLevel, tileX: xMin, tileY: yMax + 1 }), // SW
+  ]
+}
 
 type TileFetch = {
-  tx: number
-  ty: number
+  tileX: number
+  tileY: number
   tile: { width: number; height: number; data: Float32Array }
 }
 
-export const fetchAndStitchTiles = async ({
-  tileZ,
-  xMin,
-  xMax,
-  yMin,
-  yMax,
-}: {
+export const fetchAndStitchTiles = async (args: {
   tileZ: number
   xMin: number
   xMax: number
   yMin: number
   yMax: number
-}): Promise<{ data: Float32Array; width: number; height: number }> => {
+}) => {
+  const { tileZ, xMin, xMax, yMin, yMax } = args
   const tileSize = 256
   const cols = xMax - xMin + 1
   const rows = yMax - yMin + 1
@@ -57,21 +57,23 @@ export const fetchAndStitchTiles = async ({
   const data = new Float32Array(width * height)
 
   const fetches: Promise<TileFetch>[] = []
-  for (let ty = yMin; ty <= yMax; ty++) {
-    for (let tx = xMin; tx <= xMax; tx++) {
+  for (let tileY = yMin; tileY <= yMax; tileY++) {
+    for (let tileX = xMin; tileX <= xMax; tileX++) {
       fetches.push(
-        demSource.getDemTile(tileZ, tx, ty).then((tile: TileFetch['tile']) => ({ tx, ty, tile })),
+        demSource
+          .getDemTile(tileZ, tileX, tileY)
+          .then((tile: TileFetch['tile']) => ({ tileX, tileY, tile })),
       )
     }
   }
   const tiles = await Promise.all(fetches)
 
-  for (const { tx, ty, tile } of tiles) {
-    const colOffset = (tx - xMin) * tileSize
-    const rowOffset = (ty - yMin) * tileSize
-    for (let row = 0; row < tileSize; row++) {
-      const srcStart = row * tileSize
-      const dstStart = (rowOffset + row) * width + colOffset
+  for (const { tileX, tileY, tile } of tiles) {
+    const colOffset = (tileX - xMin) * tileSize
+    const rowOffset = (tileY - yMin) * tileSize
+    for (let rowIndex = 0; rowIndex < tileSize; rowIndex++) {
+      const srcStart = rowIndex * tileSize
+      const dstStart = (rowOffset + rowIndex) * width + colOffset
       data.set(tile.data.subarray(srcStart, srcStart + tileSize), dstStart)
     }
   }
@@ -79,15 +81,7 @@ export const fetchAndStitchTiles = async ({
   return { data, width, height }
 }
 
-export const renderElevationFill = async ({
-  canvas,
-  tileZ,
-  xMin,
-  xMax,
-  yMin,
-  yMax,
-  threshold,
-}: {
+export const renderElevationFill = async (args: {
   canvas: HTMLCanvasElement
   tileZ: number
   xMin: number
@@ -95,8 +89,9 @@ export const renderElevationFill = async ({
   yMin: number
   yMax: number
   threshold: number
-}): Promise<{ data: Float32Array; width: number; height: number }> => {
+}) => {
+  const { canvas, tileZ, xMin, xMax, yMin, yMax, threshold } = args
   const { data, width, height } = await fetchAndStitchTiles({ tileZ, xMin, xMax, yMin, yMax })
-  detectAndRenderIslands(canvas, data, width, height, threshold, tileZ, xMin, yMin)
+  detectAndRenderIslands({ canvas, data, width, height, threshold, tileZ, xMin, yMin })
   return { data, width, height }
 }

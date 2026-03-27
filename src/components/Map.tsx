@@ -78,28 +78,23 @@ const parseUrlParams = () => {
   const parsedPeakLng = parseFloat(params.get('peak_lng') ?? '')
   const parsedPeakEle = parseFloat(params.get('peak_ele') ?? '')
   return {
-    longitude: isNaN(parsedLng) ? DEFAULT_VIEW.longitude : parsedLng,
-    latitude: isNaN(parsedLat) ? DEFAULT_VIEW.latitude : parsedLat,
-    zoom: isNaN(parsedZoom) ? DEFAULT_VIEW.zoom : parsedZoom,
-    selectedContour: isNaN(parsedContour) ? null : parsedContour,
+    longitude: Number.isNaN(parsedLng) ? DEFAULT_VIEW.longitude : parsedLng,
+    latitude: Number.isNaN(parsedLat) ? DEFAULT_VIEW.latitude : parsedLat,
+    zoom: Number.isNaN(parsedZoom) ? DEFAULT_VIEW.zoom : parsedZoom,
+    selectedContour: Number.isNaN(parsedContour) ? null : parsedContour,
     basemap: (parsedBasemap === 'satellite' ? 'satellite' : 'hillshade') as Basemap,
     savedPeak:
-      !isNaN(parsedPeakLat) && !isNaN(parsedPeakLng) && !isNaN(parsedPeakEle)
+      !Number.isNaN(parsedPeakLat) && !Number.isNaN(parsedPeakLng) && !Number.isNaN(parsedPeakEle)
         ? { lat: parsedPeakLat, lng: parsedPeakLng, ele: parsedPeakEle }
         : null,
   }
 }
 
-const reloadContourTiles = (map: maplibregl.Map) => {
-  try {
-    map.style.sourceCaches?.[CONTOUR_SOURCE_ID]?.reload()
-  } catch {}
-}
 
 const createMarkerEl = (color: string) => {
-  const el = document.createElement('div')
-  el.style.cssText = `width:13px;height:13px;border-radius:50%;background:${color};border:2.5px solid white;box-shadow:0 1px 5px rgba(0,0,0,0.4);cursor:default`
-  return el
+  const markerEl = document.createElement('div')
+  markerEl.style.cssText = `width:13px;height:13px;border-radius:50%;background:${color};border:2.5px solid white;box-shadow:0 1px 5px rgba(0,0,0,0.4);cursor:default`
+  return markerEl
 }
 
 const MIN_ISLAND_PIXELS = 20
@@ -210,8 +205,8 @@ const MapView = () => {
     const tileZ = Math.min(Math.floor(mapPosition.zoom), 13)
     const bounds = map.getBounds()
     const maxTile = 2 ** tileZ - 1
-    const sw = lngLatToTile(bounds.getWest(), bounds.getSouth(), tileZ)
-    const ne = lngLatToTile(bounds.getEast(), bounds.getNorth(), tileZ)
+    const sw = lngLatToTile({ lng: bounds.getWest(), lat: bounds.getSouth(), zoomLevel: tileZ })
+    const ne = lngLatToTile({ lng: bounds.getEast(), lat: bounds.getNorth(), zoomLevel: tileZ })
     const xMin = Math.max(0, Math.min(sw.x, ne.x))
     const xMax = Math.min(maxTile, Math.max(sw.x, ne.x))
     const yMin = Math.max(0, Math.min(sw.y, ne.y))
@@ -221,8 +216,8 @@ const MapView = () => {
     renderElevationFill({ canvas, tileZ, xMin, xMax, yMin, yMax, threshold: selectedElevation })
       .then(({ data, width, height }) => {
         if (cancelled) return
-        const source = map.getSource('island-fill') as any
-        source.setCoordinates(getTileCanvasCoordinates(tileZ, xMin, yMin, xMax, yMax))
+        const source = map.getSource('island-fill') as maplibregl.CanvasSource
+        source.setCoordinates(getTileCanvasCoordinates({ zoomLevel: tileZ, xMin, yMin, xMax, yMax }))
         source.play()
         requestAnimationFrame(() => {
           if (!cancelled) source.pause()
@@ -232,16 +227,16 @@ const MapView = () => {
         // During prominence: detect the peak's island and signal the algorithm
         const ctx = prominenceCtxRef.current
         if (ctx && phase === 'running') {
-          const seedIdx = lngLatToPixelIdx(
-            ctx.peakLat,
-            ctx.peakLng,
+          const seedIdx = lngLatToPixelIdx({
+            lat: ctx.peakLat,
+            lng: ctx.peakLng,
             tileZ,
             xMin,
             yMin,
             width,
             height,
-          )
-          const island = detectIslandContaining(data, width, height, ctx.currentThreshold, seedIdx)
+          })
+          const island = detectIslandContaining({ data, width, height, threshold: ctx.currentThreshold, seedIdx })
           setFillResult({
             island,
             threshold: ctx.currentThreshold,
@@ -283,7 +278,7 @@ const MapView = () => {
 
     // Parent peak found
     if (island.maxEle > peakEle && island.pixels.length >= MIN_ISLAND_PIXELS) {
-      const parentLatLng = stitchedPixelToLatLng(island.maxEleIdx, width, tileZ, xMin, yMin)
+      const parentLatLng = stitchedPixelToLatLng({ pixelIdx: island.maxEleIdx, width, tileZ, xMin, yMin })
       const doneStep: ProminenceStep = {
         threshold,
         done: true,
@@ -311,13 +306,12 @@ const MapView = () => {
       ])
       const map = mapRef.current?.getMap()
       if (map) {
-        const coords = getTileCanvasCoordinates(tileZ, xMin, yMin, xMax, yMax)
+        const coords = getTileCanvasCoordinates({ zoomLevel: tileZ, xMin, yMin, xMax, yMax })
         const sw: [number, number] = [coords[3][0], coords[2][1]]
         const ne: [number, number] = [coords[1][0], coords[0][1]]
         setPaused(true)
         map.fitBounds([sw, ne], { padding: 80, duration: 700 })
         map.once('idle', () => {
-          reloadContourTiles(map)
           setPaused(false)
         })
       }
@@ -433,7 +427,7 @@ const MapView = () => {
             const tileZ = Math.min(Math.floor(mapPosition.zoom), 13)
             setPhase('ready')
             setSelectedPeak(null)
-            snapToPeak(lat, lng, tileZ)
+            snapToPeak({ lat, lng, tileZ })
               .then((peak) => setSelectedPeak(peak))
               .catch(() => setPhase('selecting'))
             return
@@ -515,17 +509,7 @@ const MapView = () => {
             firstSymbolLayerId,
           )
 
-          // Retry failed contour tiles automatically
-          let retryTimer: ReturnType<typeof setTimeout> | null = null
-          mapInstance.on('error', () => {
-            if (retryTimer) return
-            retryTimer = setTimeout(() => {
-              reloadContourTiles(mapInstance)
-              retryTimer = null
-            }, 2000)
-          })
-
-          setMapIsLoaded(true)
+setMapIsLoaded(true)
         }}
         onMoveEnd={(event) => {
           const { longitude, latitude, zoom } = event.viewState

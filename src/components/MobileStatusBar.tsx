@@ -2,7 +2,7 @@ import { LocateFixed, MapPin, Play, X } from 'lucide-react'
 import type { Phase } from './Sidebar'
 import type { ProminenceStep } from '../lib/prominenceAlgorithm'
 
-interface MobileStatusBarProps {
+type MobileStatusBarProps = {
   phase: Phase
   selectedPeak: { lat: number; lng: number; ele: number } | null
   selectedElevation: number | null
@@ -31,28 +31,22 @@ export const MobileStatusBar = ({
     !!selectedPeak && (phase === 'idle' || phase === 'ready' || phase === 'done')
   const showElevationActions = selectedElevation !== null && !selectedPeak && phase === 'idle'
 
-  let primary: string
-  let secondary: string | null = null
-
-  if (doneStep) {
-    primary = `✓ ${doneStep.prominence} m prominence`
-    secondary = `key col ${doneStep.keyColEle} m`
-  } else if (phase === 'running' && lastStep && !lastStep.done) {
-    primary = `↓ ${lastStep.threshold} m${lastStep.expandedTiles ? ' ↔ expand' : lastStep.touchesBoundary ? ' · boundary' : ''}`
-    secondary = `depth ${lastStep.depthSoFar} m`
-  } else if (phase === 'selecting') {
-    primary = 'Tap map to place peak…'
-  } else if (phase === 'ready' && !selectedPeak) {
-    primary = 'Snapping to nearest summit…'
-  } else if (selectedPeak) {
-    primary = `${selectedPeak.ele.toFixed(0)} m`
-    secondary = `${selectedPeak.lat.toFixed(4)}°N  ${selectedPeak.lng.toFixed(4)}°E`
-  } else if (selectedElevation !== null) {
-    primary = `${selectedElevation} m`
-    secondary = 'contour selected'
-  } else {
-    primary = 'Tap a contour line to begin'
+  const resolveStatusText = () => {
+    if (doneStep) return { primary: `✓ ${doneStep.prominence} m prominence`, secondary: `key col ${doneStep.keyColEle} m` }
+    if (phase === 'running' && lastStep && !lastStep.done) return {
+      primary: `↓ ${lastStep.threshold} m${lastStep.expandedTiles ? ' ↔ expand' : lastStep.touchesBoundary ? ' · boundary' : ''}`,
+      secondary: `depth ${lastStep.depthSoFar} m`,
+    }
+    if (phase === 'selecting') return { primary: 'Tap map to place peak…', secondary: null }
+    if (phase === 'ready' && !selectedPeak) return { primary: 'Snapping to nearest summit…', secondary: null }
+    if (selectedPeak) return {
+      primary: `${selectedPeak.ele.toFixed(0)} m`,
+      secondary: `${selectedPeak.lat.toFixed(4)}°N  ${selectedPeak.lng.toFixed(4)}°E`,
+    }
+    if (selectedElevation !== null) return { primary: `${selectedElevation} m`, secondary: 'contour selected' }
+    return { primary: 'Tap a contour line to begin', secondary: null }
   }
+  const { primary, secondary } = resolveStatusText()
 
   return (
     <div className="md:hidden absolute bottom-3 left-3 right-3 z-20 pointer-events-none">

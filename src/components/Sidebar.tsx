@@ -22,7 +22,7 @@ import { cn } from '@/lib/utils'
 type Basemap = 'hillshade' | 'satellite'
 export type Phase = 'idle' | 'selecting' | 'ready' | 'running' | 'done'
 
-interface SidebarProps {
+type SidebarProps = {
   basemap: Basemap
   setBasemap: (b: Basemap) => void
   selectedElevation: number | null
@@ -68,9 +68,10 @@ export const Sidebar = ({
   const [open, setOpen] = useState(true)
   const traceEndRef = useRef<HTMLDivElement>(null)
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll to bottom when history grows
   useEffect(() => {
     traceEndRef.current?.scrollIntoView({ block: 'end' })
-  }, [history.length])
+  }, [history])
 
   const lastStep = history[history.length - 1]
   const doneStep = lastStep?.done ? lastStep : null
@@ -336,9 +337,9 @@ export const Sidebar = ({
                   </h3>
                   <ScrollArea className="h-56">
                     <div className="space-y-0.5 text-xs font-mono pr-3">
-                      {history.map((step, i) => (
+                      {history.map((step) => (
                         <div
-                          key={i}
+                          key={step.done ? 'done' : step.threshold}
                           className={cn(
                             'px-2 py-1 rounded',
                             step.done
