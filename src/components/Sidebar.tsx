@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, Circle, X } from 'lucide-react'
 import logoUrl from '../assets/logo.svg'
 import type { ProminenceStep } from '../lib/prominenceAlgorithm'
@@ -23,7 +23,6 @@ type InfoPanelProps = {
   setStepInterval: (interval: number) => void
   selectedElevation: number | null
   history: ProminenceStep[]
-  isLoading: boolean
   onSelectElevation: (elevation: number) => void
 }
 
@@ -38,10 +37,10 @@ export const InfoPanel = ({
   setStepInterval,
   selectedElevation,
   history,
-  isLoading,
   onSelectElevation,
 }: InfoPanelProps) => {
   const traceEndRef = useRef<HTMLDivElement>(null)
+  const [traceOpen, setTraceOpen] = useState(true)
   const scrollToSelected = () => {
     if (selectedElevation === null) return
     const button = document.querySelector(`[data-trace-threshold="${selectedElevation}"]`)
@@ -95,24 +94,19 @@ export const InfoPanel = ({
         onClick={onClose}
       />
 
-      {/* Panel */}
-      <div className="absolute top-3 right-3 w-64 bg-background rounded-xl shadow-2xl flex flex-col z-30 md:z-10 bottom-[4.5rem]">
+      {/* Panel — centered on mobile, top-left on desktop */}
+      <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 bg-background rounded-xl shadow-2xl flex flex-col z-30 max-h-[80vh] md:inset-x-auto md:translate-y-0 md:top-14 md:left-3 md:w-64 md:max-h-[calc(100vh-5rem)]">
         {/* Header */}
-        <div className="px-4 py-3 border-b shrink-0 flex items-center justify-between">
-          <div className="flex flex-col gap-0.5">
+        <div className="px-4 py-3 border-b shrink-0 relative flex items-center justify-center">
+          <div className="flex flex-col items-center gap-0.5">
             <img src={logoUrl} alt="Mountainology" className="h-7 w-auto" />
             <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
               Prominence
             </span>
           </div>
-          <div className="flex items-center gap-1.5">
-            {isLoading && (
-              <div className="size-3 rounded-full border border-muted-foreground/30 border-t-foreground animate-spin" />
-            )}
-            <Button variant="ghost" size="icon-sm" onClick={onClose} title="Close">
-              <X size={16} />
-            </Button>
-          </div>
+          <Button variant="ghost" size="icon-sm" onClick={onClose} title="Close" className="absolute right-2 top-1/2 -translate-y-1/2">
+            <X size={16} />
+          </Button>
         </div>
 
         {/* Scrollable body */}
@@ -191,81 +185,95 @@ export const InfoPanel = ({
               <>
                 <Separator />
                 <section>
-                  <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                    Trace
-                  </h3>
-                  {doneStep && (
-                    <div className="mb-2 bg-green-50 border border-green-200 rounded-lg p-2 space-y-0.5">
-                      <div className="text-xs font-bold text-green-900">
-                        {doneStep.prominence} m prominence
-                      </div>
-                      <div className="text-xs text-green-700">Key col: {doneStep.keyColEle} m</div>
-                    </div>
-                  )}
-                  <ScrollArea className="h-40">
-                    <div className="space-y-0.5 text-xs font-mono pr-2">
-                      {history.map((step) =>
-                        step.done ? (
-                          <div
-                            key="done"
-                            className="px-2 py-1 rounded bg-green-100 text-green-800 font-semibold"
-                          >
-                            {`✓ ${step.keyColEle} m — parent at ${step.parentPeak.ele.toFixed(0)} m`}
+                  <button
+                    type="button"
+                    onClick={() => setTraceOpen((o) => !o)}
+                    className="w-full flex items-center justify-between mb-2 group"
+                  >
+                    <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                      Trace
+                    </h3>
+                    <ChevronDown
+                      size={13}
+                      className={`text-muted-foreground transition-transform ${traceOpen ? 'rotate-180' : ''}`}
+                    />
+                  </button>
+                  {traceOpen && (
+                    <>
+                      {doneStep && (
+                        <div className="mb-2 bg-green-50 border border-green-200 rounded-lg p-2 space-y-0.5">
+                          <div className="text-xs font-bold text-green-900">
+                            {doneStep.prominence} m prominence
                           </div>
-                        ) : (
-                          <button
-                            key={step.threshold}
-                            type="button"
-                            data-trace-threshold={step.threshold}
-                            className={cn(
-                              'w-full text-left px-2 py-1 rounded',
-                              step.threshold === selectedElevation
-                                ? 'bg-muted font-medium'
-                                : '',
-                              step.expandedTiles
-                                ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
-                                : step.touchesBoundary
-                                  ? 'bg-yellow-50 text-yellow-700 hover:bg-yellow-100'
-                                  : 'text-muted-foreground hover:bg-muted',
-                            )}
-                            onClick={() => onSelectElevation(step.threshold)}
-                          >
-                            {`↓ ${step.threshold} m${step.expandedTiles ? ' ↔' : step.touchesBoundary ? ' ·boundary' : ''}`}
-                          </button>
-                        ),
+                          <div className="text-xs text-green-700">Key col: {doneStep.keyColEle} m</div>
+                        </div>
                       )}
-                      <div ref={traceEndRef} />
-                    </div>
-                  </ScrollArea>
-                  {selectedTraceIdx !== -1 && (
-                    <div className="flex gap-1 mt-2">
-                      <button
-                        type="button"
-                        disabled={!canStepUp}
-                        onClick={() => onSelectElevation(traceSteps[selectedTraceIdx - 1].threshold)}
-                        className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs text-muted-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
-                        title="Previous step (↑)"
-                      >
-                        <ChevronUp size={14} /> Up
-                      </button>
-                      <button
-                        type="button"
-                        onClick={scrollToSelected}
-                        className="px-2 py-1.5 rounded-lg border text-muted-foreground hover:bg-muted"
-                        title="Scroll to selected"
-                      >
-                        <Circle size={8} fill="currentColor" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!canStepDown}
-                        onClick={() => onSelectElevation(traceSteps[selectedTraceIdx + 1].threshold)}
-                        className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs text-muted-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
-                        title="Next step (↓)"
-                      >
-                        <ChevronDown size={14} /> Down
-                      </button>
-                    </div>
+                      <ScrollArea className="h-40">
+                        <div className="space-y-0.5 text-xs font-mono pr-2">
+                          {history.map((step) =>
+                            step.done ? (
+                              <div
+                                key="done"
+                                className="px-2 py-1 rounded bg-green-100 text-green-800 font-semibold"
+                              >
+                                {`✓ ${step.keyColEle} m — parent at ${step.parentPeak.ele.toFixed(0)} m`}
+                              </div>
+                            ) : (
+                              <button
+                                key={step.threshold}
+                                type="button"
+                                data-trace-threshold={step.threshold}
+                                className={cn(
+                                  'w-full text-left px-2 py-1 rounded',
+                                  step.threshold === selectedElevation
+                                    ? 'bg-muted font-medium'
+                                    : '',
+                                  step.expandedTiles
+                                    ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                                    : step.touchesBoundary
+                                      ? 'bg-yellow-50 text-yellow-700 hover:bg-yellow-100'
+                                      : 'text-muted-foreground hover:bg-muted',
+                                )}
+                                onClick={() => onSelectElevation(step.threshold)}
+                              >
+                                {`↓ ${step.threshold} m${step.expandedTiles ? ' ↔' : step.touchesBoundary ? ' ·boundary' : ''}`}
+                              </button>
+                            ),
+                          )}
+                          <div ref={traceEndRef} />
+                        </div>
+                      </ScrollArea>
+                      {selectedTraceIdx !== -1 && (
+                        <div className="flex gap-1 mt-2">
+                          <button
+                            type="button"
+                            disabled={!canStepUp}
+                            onClick={() => onSelectElevation(traceSteps[selectedTraceIdx - 1].threshold)}
+                            className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs text-muted-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
+                            title="Previous step (↑)"
+                          >
+                            <ChevronUp size={14} /> Up
+                          </button>
+                          <button
+                            type="button"
+                            onClick={scrollToSelected}
+                            className="px-2 py-1.5 rounded-lg border text-muted-foreground hover:bg-muted"
+                            title="Scroll to selected"
+                          >
+                            <Circle size={8} fill="currentColor" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!canStepDown}
+                            onClick={() => onSelectElevation(traceSteps[selectedTraceIdx + 1].threshold)}
+                            className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs text-muted-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
+                            title="Next step (↓)"
+                          >
+                            <ChevronDown size={14} /> Down
+                          </button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </section>
               </>

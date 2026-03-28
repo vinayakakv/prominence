@@ -286,6 +286,7 @@ const MapView = () => {
   }, [selectedElevation, mapPosition, mapIsLoaded, phase, mode, contourClickPoint])
 
   // Algorithm advance — reactive state machine driven by fillResult
+  // biome-ignore lint/correctness/noDirectMutationInEffect: intentional state machine
   useEffect(() => {
     if (phase !== 'running' || !fillResult || !prominenceCtx || paused) return
     if (fillResult.threshold !== prominenceCtx.currentThreshold) return
@@ -421,7 +422,6 @@ const MapView = () => {
     setPhase('ready')
     setProminenceCtx(null)
     setFillResult(null)
-    setSelectedElevation(null)
     setHistory([])
     setPaused(false)
     setParentPeak(null)
@@ -434,6 +434,7 @@ const MapView = () => {
   const onReset = () => {
     onStop()
     setSelectedPeak(null)
+    setSelectedElevation(null)
     setPhase('idle')
   }
 
@@ -676,6 +677,7 @@ setMapIsLoaded(true)
           setPhase('ready')
           mapRef.current?.getMap()?.flyTo({ center: [peak.lng, peak.lat], zoom: 13, duration: 800 })
         }}
+        isLoading={isLoading}
       />
 
       <InfoPanel
@@ -689,7 +691,6 @@ setMapIsLoaded(true)
         setStepInterval={setStepInterval}
         selectedElevation={selectedElevation}
         history={history}
-        isLoading={isLoading}
         onSelectElevation={setSelectedElevation}
       />
     </div>

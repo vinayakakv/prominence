@@ -1,5 +1,5 @@
 import type React from 'react'
-import { ChevronDown, ChevronUp, Info, Layers, LocateFixed, MapPin, Mountain, Pause, Play, SkipForward, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Layers, LocateFixed, MapPin, Mountain, Pause, Play, Settings, SkipForward, X } from 'lucide-react'
 import type { Phase, Mode } from './Sidebar'
 import type { ProminenceStep } from '../lib/prominenceAlgorithm'
 
@@ -23,6 +23,7 @@ type BottomBarProps = {
   onZoomToPeak: () => void
   onStop: () => void
   onSelectParent: (peak: { lat: number; lng: number; ele: number }) => void
+  isLoading: boolean
 }
 
 const iconBtn = 'p-1.5 rounded-lg text-gray-600 hover:bg-black/5 active:bg-black/10'
@@ -47,6 +48,7 @@ export const BottomBar = ({
   onZoomToPeak,
   onStop,
   onSelectParent,
+  isLoading,
 }: BottomBarProps) => {
   const lastStep = history[history.length - 1]
   const doneStep = lastStep?.done ? lastStep : null
@@ -187,7 +189,7 @@ export const BottomBar = ({
   return (
     <>
       {/* Centered pill */}
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+      <div className="absolute bottom-20 left-3 right-3 z-20 flex justify-center pointer-events-none">
         <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-md pointer-events-auto w-fit min-w-56">
           {/* Row 1: mode toggle */}
           <div className="flex bg-gray-100 rounded-t-xl overflow-hidden">
@@ -221,6 +223,14 @@ export const BottomBar = ({
           <div className="px-3 py-2.5">
             {mode === 'contour' ? contourContent() : prominenceContent()}
           </div>
+
+          {/* Row 3: loading / idle */}
+          <div className="px-3 py-1.5 border-t border-gray-100 flex items-center justify-center gap-1.5">
+            {isLoading
+              ? <><div className="size-2.5 rounded-full border border-gray-400/40 border-t-gray-500 animate-spin shrink-0" /><span className="text-[10px] text-gray-600">Loading tiles…</span></>
+              : <span className="text-[10px] text-gray-600">Idle</span>
+            }
+          </div>
         </div>
       </div>
 
@@ -228,14 +238,14 @@ export const BottomBar = ({
       <button
         type="button"
         onClick={onToggleInfo}
-        className={`absolute bottom-3 right-3 z-20 p-2 rounded-xl shadow-md backdrop-blur-sm transition-colors ${
+        className={`absolute top-3 right-3 z-20 p-2 rounded-xl shadow-md backdrop-blur-sm transition-colors ${
           infoOpen
             ? 'bg-gray-900 text-white'
             : 'bg-white/90 text-gray-500 hover:bg-white hover:text-gray-700'
         }`}
         title="Toggle info panel"
       >
-        <Info size={16} />
+        <Settings size={16} />
       </button>
     </>
   )
