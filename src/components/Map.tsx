@@ -9,9 +9,10 @@ import { renderElevationFill, getTileCanvasCoordinates, lngLatToTile } from '../
 import { detectIslandContaining, stitchedPixelToLatLng } from '../lib/islandDetector'
 import { lngLatToPixelIdx, snapToPeak } from '../lib/prominenceAlgorithm'
 import type { ProminenceContext, ProminenceStep } from '../lib/prominenceAlgorithm'
-import { Sidebar } from './Sidebar'
-import { MobileStatusBar } from './MobileStatusBar'
-import type { Phase } from './Sidebar'
+import { InfoPanel } from './Sidebar'
+import { BottomBar } from './MobileStatusBar'
+import type { Phase, Mode, Basemap } from './Sidebar'
+import { stepElevation } from '../lib/elevationStep'
 
 const BASE_MAP_STYLE = 'https://tiles.openfreemap.org/styles/positron'
 const TERRARIUM_TILES = ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png']
@@ -25,8 +26,6 @@ const CONTOUR_LAYER_ID = 'contour-lines'
 const CONTOUR_SELECTED_LAYER_ID = 'contour-selected'
 const CONTOUR_HIT_LAYER_ID = 'contour-hit'
 const CONTOUR_SOURCE_LAYER = 'contours'
-
-type Basemap = 'hillshade' | 'satellite'
 
 const contourHitLayerSpec: LayerProps = {
   id: CONTOUR_HIT_LAYER_ID,
@@ -150,6 +149,12 @@ const MapView = () => {
     null,
   )
 
+  // Two-mode UI state
+  const [mode, setMode] = useState<Mode>('contour')
+  const [contourClickPoint, setContourClickPoint] = useState<{ lat: number; lng: number } | null>(null)
+  const [contourIslandMax, setContourIslandMax] = useState<{ lat: number; lng: number; ele: number } | null>(null)
+  const [infoOpen, setInfoOpen] = useState(() => window.innerWidth >= 768)
+
   // URL param sync
   useEffect(() => {
     const params = new URLSearchParams()
@@ -183,11 +188,15 @@ const MapView = () => {
     )
   }, [basemap, mapIsLoaded])
 
-  // Crosshair cursor during peak selection
+  // Crosshair cursor in prominence mode when idle/done (map click selects peak)
   useEffect(() => {
     const canvas = mapRef.current?.getMap()?.getCanvas()
-    if (canvas) canvas.style.cursor = phase === 'selecting' ? 'crosshair' : ''
-  }, [phase])
+    if (!canvas) return
+    const showCrosshair =
+      phase === 'selecting' ||
+      (mode === 'prominence' && (phase === 'idle' || phase === 'done'))
+    canvas.style.cursor = showCrosshair ? 'crosshair' : ''
+  }, [phase, mode])
 
   // Island fill — runs for all elevation selections including during prominence
   useEffect(() => {
@@ -249,12 +258,32 @@ const MapView = () => {
             height,
           })
         }
+
+        // Contour mode: detect island max elevation for the clicked contour point
+        if (mode === 'contour' && contourClickPoint && selectedElevation !== null) {
+          const seedIdx = lngLatToPixelIdx({
+            lat: contourClickPoint.lat,
+            lng: contourClickPoint.lng,
+            tileZ,
+            xMin,
+            yMin,
+            width,
+            height,
+          })
+          const island = detectIslandContaining({ data, width, height, threshold: selectedElevation, seedIdx })
+          if (island) {
+            const maxLatLng = stitchedPixelToLatLng({ pixelIdx: island.maxEleIdx, width, tileZ, xMin, yMin })
+            setContourIslandMax({ ...maxLatLng, ele: island.maxEle })
+          } else {
+            setContourIslandMax(null)
+          }
+        }
       })
       .catch(() => {})
     return () => {
       cancelled = true
     }
-  }, [selectedElevation, mapPosition, mapIsLoaded, phase])
+  }, [selectedElevation, mapPosition, mapIsLoaded, phase, mode, contourClickPoint])
 
   // Algorithm advance — reactive state machine driven by fillResult
   useEffect(() => {
@@ -360,14 +389,6 @@ const MapView = () => {
       .addTo(map)
   }, [parentPeak, mapIsLoaded])
 
-  const onToggleSelectPeak = () => {
-    if (phase === 'selecting') {
-      setPhase(selectedPeak ? 'ready' : 'idle')
-    } else if (phase === 'idle' || phase === 'ready') {
-      setPhase('selecting')
-    }
-  }
-
   const onCompute = () => {
     if (!selectedPeak || !mapIsLoaded) return
     const startThreshold = selectedPeak.ele - stepInterval
@@ -395,11 +416,12 @@ const MapView = () => {
 
   const onTogglePause = () => setPaused((p) => !p)
 
-  const onReset = () => {
+  const onStop = () => {
     prominenceCtxRef.current = null
-    setPhase(selectedPeak ? 'ready' : 'idle')
+    setPhase('ready')
     setProminenceCtx(null)
     setFillResult(null)
+    setSelectedElevation(null)
     setHistory([])
     setPaused(false)
     setParentPeak(null)
@@ -407,6 +429,34 @@ const MapView = () => {
     if (map && mapIsLoaded) {
       map.setLayoutProperty('island-fill-layer', 'visibility', 'none')
     }
+  }
+
+  const onReset = () => {
+    onStop()
+    setSelectedPeak(null)
+    setPhase('idle')
+  }
+
+  const onSetMode = (newMode: Mode) => {
+    setMode(newMode)
+    // Clear mode-specific state on switch
+    if (newMode === 'prominence') {
+      setContourClickPoint(null)
+      setContourIslandMax(null)
+    } else {
+      if (phase === 'running' || phase === 'done') {
+        onReset()
+      }
+    }
+  }
+
+  const onZoomToContourMax = () => {
+    if (!contourIslandMax) return
+    mapRef.current?.getMap()?.flyTo({
+      center: [contourIslandMax.lng, contourIslandMax.lat],
+      zoom: 13,
+      duration: 800,
+    })
   }
 
   return (
@@ -422,6 +472,19 @@ const MapView = () => {
         mapStyle={BASE_MAP_STYLE}
         interactiveLayerIds={[CONTOUR_HIT_LAYER_ID]}
         onClick={(event) => {
+          if (mode === 'prominence') {
+            if (phase === 'running') return
+            if (phase === 'done') onReset()
+            const { lng, lat } = event.lngLat
+            const tileZ = Math.min(Math.floor(mapPosition.zoom), 13)
+            setPhase('ready')
+            setSelectedPeak(null)
+            snapToPeak({ lat, lng, tileZ })
+              .then((peak) => setSelectedPeak(peak))
+              .catch(() => setPhase('idle'))
+            return
+          }
+          // Contour mode
           if (phase === 'selecting') {
             const { lng, lat } = event.lngLat
             const tileZ = Math.min(Math.floor(mapPosition.zoom), 13)
@@ -434,7 +497,15 @@ const MapView = () => {
           }
           const clickedFeature = event.features?.[0]
           const elevation = clickedFeature?.properties?.ele as number | undefined
-          setSelectedElevation(elevation ?? null)
+          if (elevation !== undefined) {
+            setSelectedElevation(elevation)
+            setContourClickPoint({ lat: event.lngLat.lat, lng: event.lngLat.lng })
+            setContourIslandMax(null)
+          } else {
+            setSelectedElevation(null)
+            setContourClickPoint(null)
+            setContourIslandMax(null)
+          }
         }}
         onLoad={(event) => {
           const mapInstance = event.target
@@ -563,63 +634,63 @@ setMapIsLoaded(true)
       <button
         type="button"
         onClick={() => mapRef.current?.getMap()?.resetNorth({ duration: 500 })}
-        className="absolute right-3 top-3 z-20 bg-white/90 backdrop-blur-sm rounded-lg shadow-md p-2 text-gray-700 hover:bg-white transition-colors"
+        className="absolute left-3 top-3 z-20 bg-white/90 backdrop-blur-sm rounded-lg shadow-md p-2 text-gray-700 hover:bg-white transition-colors"
         title="Reset to north"
       >
         <Compass size={18} />
       </button>
 
-      <MobileStatusBar
+      <BottomBar
+        mode={mode}
+        onSetMode={onSetMode}
         phase={phase}
-        selectedPeak={selectedPeak}
         selectedElevation={selectedElevation}
-        history={history}
-        onZoomToPeak={() => {
-          if (!selectedPeak) return
-          mapRef.current
-            ?.getMap()
-            ?.flyTo({ center: [selectedPeak.lng, selectedPeak.lat], zoom: 13, duration: 800 })
+        onStepElevation={(direction) =>
+          setSelectedElevation((prev) =>
+            prev !== null ? stepElevation(prev, stepDelta, direction) : prev,
+          )
+        }
+        contourIslandMax={contourIslandMax}
+        onZoomToContourMax={onZoomToContourMax}
+        onClearElevation={() => {
+          setSelectedElevation(null)
+          setContourClickPoint(null)
+          setContourIslandMax(null)
         }}
-        onClearPeak={() => {
-          setSelectedPeak(null)
-          setPhase('idle')
-          setProminenceCtx(null)
-          setHistory([])
-          setPaused(false)
-          setParentPeak(null)
-          const map = mapRef.current?.getMap()
-          if (map && mapIsLoaded) map.setLayoutProperty('island-fill-layer', 'visibility', 'none')
-        }}
-        onClearElevation={() => setSelectedElevation(null)}
-        onToggleSelectPeak={onToggleSelectPeak}
-        onCompute={onCompute}
-      />
-
-      <Sidebar
-        basemap={basemap}
-        setBasemap={setBasemap}
-        selectedElevation={selectedElevation}
-        setSelectedElevation={setSelectedElevation}
-        stepDelta={stepDelta}
-        setStepDelta={setStepDelta}
-        isLoading={isLoading}
-        phase={phase}
         selectedPeak={selectedPeak}
         history={history}
         paused={paused}
-        stepInterval={stepInterval}
-        setStepInterval={setStepInterval}
-        onToggleSelectPeak={onToggleSelectPeak}
+        infoOpen={infoOpen}
+        onToggleInfo={() => setInfoOpen((open) => !open)}
+        onCompute={onCompute}
+        onTogglePause={onTogglePause}
+        onStep={onStep}
         onZoomToPeak={() => {
           if (!selectedPeak) return
-          mapRef.current
-            ?.getMap()
-            ?.flyTo({ center: [selectedPeak.lng, selectedPeak.lat], zoom: 13, duration: 800 })
+          mapRef.current?.getMap()?.flyTo({ center: [selectedPeak.lng, selectedPeak.lat], zoom: 13, duration: 800 })
         }}
-        onCompute={onCompute}
-        onStep={onStep}
-        onTogglePause={onTogglePause}
-        onReset={onReset}
+        onStop={onStop}
+        onSelectParent={(peak) => {
+          onStop()
+          setSelectedPeak(peak)
+          setPhase('ready')
+          mapRef.current?.getMap()?.flyTo({ center: [peak.lng, peak.lat], zoom: 13, duration: 800 })
+        }}
+      />
+
+      <InfoPanel
+        open={infoOpen}
+        onClose={() => setInfoOpen(false)}
+        basemap={basemap}
+        setBasemap={setBasemap}
+        stepDelta={stepDelta}
+        setStepDelta={setStepDelta}
+        stepInterval={stepInterval}
+        setStepInterval={setStepInterval}
+        selectedElevation={selectedElevation}
+        history={history}
+        isLoading={isLoading}
+        onSelectElevation={setSelectedElevation}
       />
     </div>
   )

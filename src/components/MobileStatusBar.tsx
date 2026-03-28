@@ -1,117 +1,242 @@
-import { LocateFixed, MapPin, Play, X } from 'lucide-react'
-import type { Phase } from './Sidebar'
+import type React from 'react'
+import { ChevronDown, ChevronUp, Info, Layers, LocateFixed, MapPin, Mountain, Pause, Play, SkipForward, X } from 'lucide-react'
+import type { Phase, Mode } from './Sidebar'
 import type { ProminenceStep } from '../lib/prominenceAlgorithm'
 
-type MobileStatusBarProps = {
+type BottomBarProps = {
+  mode: Mode
+  onSetMode: (mode: Mode) => void
   phase: Phase
-  selectedPeak: { lat: number; lng: number; ele: number } | null
   selectedElevation: number | null
-  history: ProminenceStep[]
-  onZoomToPeak: () => void
-  onClearPeak: () => void
+  onStepElevation: (direction: 'up' | 'down') => void
+  contourIslandMax: { lat: number; lng: number; ele: number } | null
+  onZoomToContourMax: () => void
   onClearElevation: () => void
-  onToggleSelectPeak: () => void
+  selectedPeak: { lat: number; lng: number; ele: number } | null
+  history: ProminenceStep[]
+  paused: boolean
+  infoOpen: boolean
+  onToggleInfo: () => void
   onCompute: () => void
+  onTogglePause: () => void
+  onStep: () => void
+  onZoomToPeak: () => void
+  onStop: () => void
+  onSelectParent: (peak: { lat: number; lng: number; ele: number }) => void
 }
 
-export const MobileStatusBar = ({
+const iconBtn = 'p-1.5 rounded-lg text-gray-600 hover:bg-black/5 active:bg-black/10'
+
+export const BottomBar = ({
+  mode,
+  onSetMode,
   phase,
-  selectedPeak,
   selectedElevation,
-  history,
-  onZoomToPeak,
-  onClearPeak,
+  onStepElevation,
+  contourIslandMax,
+  onZoomToContourMax,
   onClearElevation,
-  onToggleSelectPeak,
+  selectedPeak,
+  history,
+  paused,
+  infoOpen,
+  onToggleInfo,
   onCompute,
-}: MobileStatusBarProps) => {
+  onTogglePause,
+  onStep,
+  onZoomToPeak,
+  onStop,
+  onSelectParent,
+}: BottomBarProps) => {
   const lastStep = history[history.length - 1]
   const doneStep = lastStep?.done ? lastStep : null
-  const showPeakActions =
-    !!selectedPeak && (phase === 'idle' || phase === 'ready' || phase === 'done')
-  const showElevationActions = selectedElevation !== null && !selectedPeak && phase === 'idle'
 
-  const resolveStatusText = () => {
-    if (doneStep) return { primary: `✓ ${doneStep.prominence} m prominence`, secondary: `key col ${doneStep.keyColEle} m` }
-    if (phase === 'running' && lastStep && !lastStep.done) return {
-      primary: `↓ ${lastStep.threshold} m${lastStep.expandedTiles ? ' ↔ expand' : lastStep.touchesBoundary ? ' · boundary' : ''}`,
-      secondary: `depth ${lastStep.depthSoFar} m`,
-    }
-    if (phase === 'selecting') return { primary: 'Tap map to place peak…', secondary: null }
-    if (phase === 'ready' && !selectedPeak) return { primary: 'Snapping to nearest summit…', secondary: null }
-    if (selectedPeak) return {
-      primary: `${selectedPeak.ele.toFixed(0)} m`,
-      secondary: `${selectedPeak.lat.toFixed(4)}°N  ${selectedPeak.lng.toFixed(4)}°E`,
-    }
-    if (selectedElevation !== null) return { primary: `${selectedElevation} m`, secondary: 'contour selected' }
-    return { primary: 'Tap a contour line to begin', secondary: null }
-  }
-  const { primary, secondary } = resolveStatusText()
+  const row = (left: React.ReactNode, right?: React.ReactNode) => (
+    <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center gap-1">{left}</div>
+      {right && <div className="flex items-center gap-1 shrink-0">{right}</div>}
+    </div>
+  )
 
-  return (
-    <div className="md:hidden absolute bottom-3 left-3 right-3 z-20 pointer-events-none">
-      <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-md px-4 py-2.5 flex items-center gap-3 text-sm pointer-events-auto">
-        <span
-          className={`flex-1 ${doneStep ? 'font-semibold text-green-700' : 'font-medium text-gray-800'}`}
-        >
-          {primary}
-        </span>
-        {secondary && !showPeakActions && !showElevationActions && (
-          <span className="text-xs text-gray-500 shrink-0">{secondary}</span>
+  const contourContent = () => {
+    if (selectedElevation === null) {
+      return row(<span className="text-gray-500 text-sm">Select a contour to begin</span>)
+    }
+    return (
+      <div className="space-y-1">
+        {row(
+          <>
+            <button type="button" onClick={() => onStepElevation('down')} className={iconBtn} title="Step down">
+              <ChevronDown size={15} />
+            </button>
+            <span className="font-semibold tabular-nums text-sm">{selectedElevation.toFixed(2)} m</span>
+            <button type="button" onClick={() => onStepElevation('up')} className={iconBtn} title="Step up">
+              <ChevronUp size={15} />
+            </button>
+          </>,
+          <button type="button" onClick={onClearElevation} className={iconBtn} title="Clear contour">
+            <X size={15} />
+          </button>,
         )}
-        {showElevationActions && (
-          <div className="flex items-center gap-1 shrink-0">
-            <span className="text-xs text-gray-500 mr-1">{secondary}</span>
-            <button
-              type="button"
-              onClick={onToggleSelectPeak}
-              className="p-2 rounded-lg text-gray-600 hover:bg-black/5 active:bg-black/10"
-              title="Select peak"
-            >
-              <MapPin size={16} />
-            </button>
-            <button
-              type="button"
-              onClick={onClearElevation}
-              className="p-2 rounded-lg text-gray-600 hover:bg-black/5 active:bg-black/10"
-              title="Clear contour"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        )}
-        {showPeakActions && (
-          <div className="flex items-center gap-1 shrink-0">
-            <span className="text-xs text-gray-500 mr-1">{secondary}</span>
-            <button
-              type="button"
-              onClick={onZoomToPeak}
-              className="p-2 rounded-lg text-gray-600 hover:bg-black/5 active:bg-black/10"
-              title="Zoom to peak"
-            >
-              <LocateFixed size={16} />
-            </button>
-            {phase === 'ready' && (
-              <button
-                type="button"
-                onClick={onCompute}
-                className="p-2 rounded-lg text-orange-500 hover:bg-orange-50 active:bg-orange-100"
-                title="Compute prominence"
-              >
-                <Play size={16} />
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={onClearPeak}
-              className="p-2 rounded-lg text-gray-600 hover:bg-black/5 active:bg-black/10"
-              title="Clear peak"
-            >
-              <X size={16} />
-            </button>
-          </div>
+        {contourIslandMax && row(
+          <span className="text-xs text-gray-500">Max: {contourIslandMax.ele.toFixed(2)} m</span>,
+          <button type="button" onClick={onZoomToContourMax} className={iconBtn} title="Navigate to max elevation">
+            <LocateFixed size={15} />
+          </button>,
         )}
       </div>
-    </div>
+    )
+  }
+
+  const prominenceContent = () => {
+    const peakRow = selectedPeak
+      ? row(
+          <span className="text-xs text-gray-500">
+            Selected: <span className="font-semibold tabular-nums text-gray-800">{selectedPeak.ele.toFixed(2)} m</span>
+          </span>,
+          <button type="button" onClick={onZoomToPeak} className={iconBtn} title="Zoom to peak">
+            <LocateFixed size={15} />
+          </button>,
+        )
+      : null
+
+    if (doneStep) {
+      return (
+        <div className="space-y-1">
+          {peakRow}
+          {row(
+            <>
+              <span className="font-semibold text-sm text-green-700">✓ {doneStep.prominence.toFixed(2)} m</span>
+              <span className="text-xs text-gray-400">col {doneStep.keyColEle.toFixed(2)} m</span>
+            </>,
+            <button type="button" onClick={onStop} className={iconBtn} title="Clear result">
+              <X size={15} />
+            </button>,
+          )}
+          {row(
+            <span className="text-xs text-gray-500">Parent: {doneStep.parentPeak.ele.toFixed(2)} m</span>,
+            <button type="button" onClick={() => onSelectParent(doneStep.parentPeak)} className={iconBtn} title="Select parent peak">
+              <MapPin size={15} />
+            </button>,
+          )}
+        </div>
+      )
+    }
+
+    if (phase === 'running') {
+      return (
+        <div className="space-y-1">
+          {peakRow}
+          {lastStep && !lastStep.done && row(
+            <span className="font-medium tabular-nums text-xs text-gray-500">
+              {`↓ ${lastStep.threshold.toFixed(2)} m${lastStep.expandedTiles ? ' ↔' : lastStep.touchesBoundary ? ' · boundary' : ''}`}
+            </span>,
+            <>
+              <span className="text-xs text-gray-400">{lastStep.depthSoFar.toFixed(2)} m</span>
+              <button type="button" onClick={onTogglePause} className={iconBtn} title={paused ? 'Resume' : 'Pause'}>
+                {paused ? <Play size={15} /> : <Pause size={15} />}
+              </button>
+              {paused && (
+                <button type="button" onClick={onStep} className={iconBtn} title="Step">
+                  <SkipForward size={15} />
+                </button>
+              )}
+              <button type="button" onClick={onStop} className={iconBtn} title="Stop">
+                <X size={15} />
+              </button>
+            </>,
+          )}
+        </div>
+      )
+    }
+
+    if (phase === 'ready' && !selectedPeak) {
+      return row(<span className="text-gray-500 text-sm">Snapping to summit…</span>)
+    }
+
+    if (selectedPeak) {
+      return (
+        <div className="space-y-1">
+          {row(
+            <span className="text-xs text-gray-500">
+              Selected: <span className="font-semibold tabular-nums text-gray-800">{selectedPeak.ele.toFixed(2)} m</span>
+            </span>,
+            <>
+              <button type="button" onClick={onZoomToPeak} className={iconBtn} title="Zoom to peak">
+                <LocateFixed size={15} />
+              </button>
+              {phase === 'ready' && (
+                <button
+                  type="button"
+                  onClick={onCompute}
+                  className="p-1.5 rounded-lg bg-gray-900 text-white hover:bg-gray-700 active:bg-gray-800"
+                  title="Compute prominence"
+                >
+                  <Play size={15} />
+                </button>
+              )}
+            </>,
+          )}
+        </div>
+      )
+    }
+
+    return row(<span className="text-gray-500 text-sm">Tap map to select a peak</span>)
+  }
+
+  return (
+    <>
+      {/* Centered pill */}
+      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+        <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-md pointer-events-auto w-fit min-w-56">
+          {/* Row 1: mode toggle */}
+          <div className="flex bg-gray-100 rounded-t-xl overflow-hidden">
+            <button
+              type="button"
+              onClick={() => onSetMode('contour')}
+              className={`flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors flex-1 justify-center ${
+                mode === 'contour'
+                  ? 'bg-white text-gray-900 shadow-sm rounded-tl-xl'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Layers size={13} />
+              Contour
+            </button>
+            <button
+              type="button"
+              onClick={() => onSetMode('prominence')}
+              className={`flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors flex-1 justify-center ${
+                mode === 'prominence'
+                  ? 'bg-white text-gray-900 shadow-sm rounded-tr-xl'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Mountain size={13} />
+              Prominence
+            </button>
+          </div>
+
+          {/* Row 2: status + inline actions */}
+          <div className="px-3 py-2.5">
+            {mode === 'contour' ? contourContent() : prominenceContent()}
+          </div>
+        </div>
+      </div>
+
+      {/* Info button — outside pill, bottom right */}
+      <button
+        type="button"
+        onClick={onToggleInfo}
+        className={`absolute bottom-3 right-3 z-20 p-2 rounded-xl shadow-md backdrop-blur-sm transition-colors ${
+          infoOpen
+            ? 'bg-gray-900 text-white'
+            : 'bg-white/90 text-gray-500 hover:bg-white hover:text-gray-700'
+        }`}
+        title="Toggle info panel"
+      >
+        <Info size={16} />
+      </button>
+    </>
   )
 }
