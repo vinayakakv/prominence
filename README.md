@@ -4,6 +4,10 @@ An interactive map tool for computing and visualising **topographic prominence**
 
 **[View Live Demo →](https://prominence.vinayakakv.com)**
 
+## AI Disclaimer
+
+This repository is mostly coded by Claude Code, as you see from the commits. The code quality etc. are good for a PoC, and nowhere near the standards for maintainability and reliability.
+
 ## Features
 
 - Step-through or autorun prominence computation with animated island fill
