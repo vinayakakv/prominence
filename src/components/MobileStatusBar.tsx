@@ -1,6 +1,18 @@
 import type React from 'react'
-import { ChevronDown, ChevronUp, Layers, LocateFixed, MapPin, Mountain, Pause, Play, Settings, SkipForward, X } from 'lucide-react'
-import type { Phase, Mode } from './Sidebar'
+import {
+  ChevronDown,
+  ChevronUp,
+  Layers,
+  LocateFixed,
+  MapPin,
+  Mountain,
+  Pause,
+  Play,
+  Settings,
+  SkipForward,
+  X,
+} from 'lucide-react'
+import type { Phase, Mode, Peak } from '@/types/app'
 import type { ProminenceStep } from '../lib/prominenceAlgorithm'
 
 type BottomBarProps = {
@@ -9,10 +21,10 @@ type BottomBarProps = {
   phase: Phase
   selectedElevation: number | null
   onStepElevation: (direction: 'up' | 'down') => void
-  contourIslandMax: { lat: number; lng: number; ele: number } | null
+  contourIslandMax: Peak | null
   onZoomToContourMax: () => void
   onClearElevation: () => void
-  selectedPeak: { lat: number; lng: number; ele: number } | null
+  selectedPeak: Peak | null
   history: ProminenceStep[]
   paused: boolean
   infoOpen: boolean
@@ -22,7 +34,7 @@ type BottomBarProps = {
   onStep: () => void
   onZoomToPeak: () => void
   onStop: () => void
-  onSelectParent: (peak: { lat: number; lng: number; ele: number }) => void
+  onSelectParent: (peak: Peak) => void
   isLoading: boolean
 }
 
@@ -68,24 +80,47 @@ export const BottomBar = ({
       <div className="space-y-1">
         {row(
           <>
-            <button type="button" onClick={() => onStepElevation('down')} className={iconBtn} title="Step down">
+            <button
+              type="button"
+              onClick={() => onStepElevation('down')}
+              className={iconBtn}
+              title="Step down"
+            >
               <ChevronDown size={15} />
             </button>
-            <span className="font-semibold tabular-nums text-sm">{selectedElevation.toFixed(2)} m</span>
-            <button type="button" onClick={() => onStepElevation('up')} className={iconBtn} title="Step up">
+            <span className="font-semibold tabular-nums text-sm">
+              {selectedElevation.toFixed(2)} m
+            </span>
+            <button
+              type="button"
+              onClick={() => onStepElevation('up')}
+              className={iconBtn}
+              title="Step up"
+            >
               <ChevronUp size={15} />
             </button>
           </>,
-          <button type="button" onClick={onClearElevation} className={iconBtn} title="Clear contour">
+          <button
+            type="button"
+            onClick={onClearElevation}
+            className={iconBtn}
+            title="Clear contour"
+          >
             <X size={15} />
           </button>,
         )}
-        {contourIslandMax && row(
-          <span className="text-xs text-gray-500">Max: {contourIslandMax.ele.toFixed(2)} m</span>,
-          <button type="button" onClick={onZoomToContourMax} className={iconBtn} title="Navigate to max elevation">
-            <LocateFixed size={15} />
-          </button>,
-        )}
+        {contourIslandMax &&
+          row(
+            <span className="text-xs text-gray-500">Max: {contourIslandMax.ele.toFixed(2)} m</span>,
+            <button
+              type="button"
+              onClick={onZoomToContourMax}
+              className={iconBtn}
+              title="Navigate to max elevation"
+            >
+              <LocateFixed size={15} />
+            </button>,
+          )}
       </div>
     )
   }
@@ -94,7 +129,10 @@ export const BottomBar = ({
     const peakRow = selectedPeak
       ? row(
           <span className="text-xs text-gray-500">
-            Selected: <span className="font-semibold tabular-nums text-gray-800">{selectedPeak.ele.toFixed(2)} m</span>
+            Selected:{' '}
+            <span className="font-semibold tabular-nums text-gray-800">
+              {selectedPeak.ele.toFixed(2)} m
+            </span>
           </span>,
           <button type="button" onClick={onZoomToPeak} className={iconBtn} title="Zoom to peak">
             <LocateFixed size={15} />
@@ -108,7 +146,9 @@ export const BottomBar = ({
           {peakRow}
           {row(
             <>
-              <span className="font-semibold text-sm text-green-700">✓ {doneStep.prominence.toFixed(2)} m</span>
+              <span className="font-semibold text-sm text-green-700">
+                ✓ {doneStep.prominence.toFixed(2)} m
+              </span>
               <span className="text-xs text-gray-400">col {doneStep.keyColEle.toFixed(2)} m</span>
             </>,
             <button type="button" onClick={onStop} className={iconBtn} title="Clear result">
@@ -116,8 +156,15 @@ export const BottomBar = ({
             </button>,
           )}
           {row(
-            <span className="text-xs text-gray-500">Parent: {doneStep.parentPeak.ele.toFixed(2)} m</span>,
-            <button type="button" onClick={() => onSelectParent(doneStep.parentPeak)} className={iconBtn} title="Select parent peak">
+            <span className="text-xs text-gray-500">
+              Parent: {doneStep.parentPeak.ele.toFixed(2)} m
+            </span>,
+            <button
+              type="button"
+              onClick={() => onSelectParent(doneStep.parentPeak)}
+              className={iconBtn}
+              title="Select parent peak"
+            >
               <MapPin size={15} />
             </button>,
           )}
@@ -129,25 +176,32 @@ export const BottomBar = ({
       return (
         <div className="space-y-1">
           {peakRow}
-          {lastStep && !lastStep.done && row(
-            <span className="font-medium tabular-nums text-xs text-gray-500">
-              {`↓ ${lastStep.threshold.toFixed(2)} m${lastStep.expandedTiles ? ' ↔' : lastStep.touchesBoundary ? ' · boundary' : ''}`}
-            </span>,
-            <>
-              <span className="text-xs text-gray-400">{lastStep.depthSoFar.toFixed(2)} m</span>
-              <button type="button" onClick={onTogglePause} className={iconBtn} title={paused ? 'Resume' : 'Pause'}>
-                {paused ? <Play size={15} /> : <Pause size={15} />}
-              </button>
-              {paused && (
-                <button type="button" onClick={onStep} className={iconBtn} title="Step">
-                  <SkipForward size={15} />
+          {lastStep &&
+            !lastStep.done &&
+            row(
+              <span className="font-medium tabular-nums text-xs text-gray-500">
+                {`↓ ${lastStep.threshold.toFixed(2)} m${lastStep.expandedTiles ? ' ↔' : lastStep.touchesBoundary ? ' · boundary' : ''}`}
+              </span>,
+              <>
+                <span className="text-xs text-gray-400">{lastStep.depthSoFar.toFixed(2)} m</span>
+                <button
+                  type="button"
+                  onClick={onTogglePause}
+                  className={iconBtn}
+                  title={paused ? 'Resume' : 'Pause'}
+                >
+                  {paused ? <Play size={15} /> : <Pause size={15} />}
                 </button>
-              )}
-              <button type="button" onClick={onStop} className={iconBtn} title="Stop">
-                <X size={15} />
-              </button>
-            </>,
-          )}
+                {paused && (
+                  <button type="button" onClick={onStep} className={iconBtn} title="Step">
+                    <SkipForward size={15} />
+                  </button>
+                )}
+                <button type="button" onClick={onStop} className={iconBtn} title="Stop">
+                  <X size={15} />
+                </button>
+              </>,
+            )}
         </div>
       )
     }
@@ -161,7 +215,10 @@ export const BottomBar = ({
         <div className="space-y-1">
           {row(
             <span className="text-xs text-gray-500">
-              Selected: <span className="font-semibold tabular-nums text-gray-800">{selectedPeak.ele.toFixed(2)} m</span>
+              Selected:{' '}
+              <span className="font-semibold tabular-nums text-gray-800">
+                {selectedPeak.ele.toFixed(2)} m
+              </span>
             </span>,
             <>
               <button type="button" onClick={onZoomToPeak} className={iconBtn} title="Zoom to peak">
@@ -226,10 +283,14 @@ export const BottomBar = ({
 
           {/* Row 3: loading / idle */}
           <div className="px-3 py-1.5 border-t border-gray-100 flex items-center justify-center gap-1.5">
-            {isLoading
-              ? <><div className="size-2.5 rounded-full border border-gray-400/40 border-t-gray-500 animate-spin shrink-0" /><span className="text-[10px] text-gray-600">Loading tiles…</span></>
-              : <span className="text-[10px] text-gray-600">Idle</span>
-            }
+            {isLoading ? (
+              <>
+                <div className="size-2.5 rounded-full border border-gray-400/40 border-t-gray-500 animate-spin shrink-0" />
+                <span className="text-[10px] text-gray-600">Loading tiles…</span>
+              </>
+            ) : (
+              <span className="text-[10px] text-gray-600">Idle</span>
+            )}
           </div>
         </div>
       </div>

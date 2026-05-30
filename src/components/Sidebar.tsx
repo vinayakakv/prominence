@@ -2,15 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, Circle, X } from 'lucide-react'
 import logoUrl from '../assets/logo.svg'
 import type { ProminenceStep } from '../lib/prominenceAlgorithm'
+import type { Basemap } from '@/types/app'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
-
-export type Basemap = 'hillshade' | 'satellite'
-export type Phase = 'idle' | 'selecting' | 'ready' | 'running' | 'done'
-export type Mode = 'contour' | 'prominence'
 
 type InfoPanelProps = {
   open: boolean
@@ -89,10 +86,7 @@ export const InfoPanel = ({
       {/* Mobile backdrop */}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: backdrop dismiss */}
       {/* biome-ignore lint/a11y/useKeyWithClickEvents: backdrop dismiss */}
-      <div
-        className="md:hidden absolute inset-0 z-20 bg-black/20"
-        onClick={onClose}
-      />
+      <div className="md:hidden absolute inset-0 z-20 bg-black/20" onClick={onClose} />
 
       {/* Panel — centered on mobile, top-left on desktop */}
       <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 bg-background rounded-xl shadow-2xl flex flex-col z-30 max-h-[80vh] md:inset-x-auto md:translate-y-0 md:top-14 md:left-3 md:w-64 md:max-h-[calc(100vh-5rem)]">
@@ -104,7 +98,13 @@ export const InfoPanel = ({
               Prominence
             </span>
           </div>
-          <Button variant="ghost" size="icon-sm" onClick={onClose} title="Close" className="absolute right-2 top-1/2 -translate-y-1/2">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onClose}
+            title="Close"
+            className="absolute right-2 top-1/2 -translate-y-1/2"
+          >
             <X size={16} />
           </Button>
         </div>
@@ -205,7 +205,9 @@ export const InfoPanel = ({
                           <div className="text-xs font-bold text-green-900">
                             {doneStep.prominence} m prominence
                           </div>
-                          <div className="text-xs text-green-700">Key col: {doneStep.keyColEle} m</div>
+                          <div className="text-xs text-green-700">
+                            Key col: {doneStep.keyColEle} m
+                          </div>
                         </div>
                       )}
                       <ScrollArea className="h-40">
@@ -248,7 +250,9 @@ export const InfoPanel = ({
                           <button
                             type="button"
                             disabled={!canStepUp}
-                            onClick={() => onSelectElevation(traceSteps[selectedTraceIdx - 1].threshold)}
+                            onClick={() =>
+                              onSelectElevation(traceSteps[selectedTraceIdx - 1].threshold)
+                            }
                             className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs text-muted-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
                             title="Previous step (↑)"
                           >
@@ -265,7 +269,9 @@ export const InfoPanel = ({
                           <button
                             type="button"
                             disabled={!canStepDown}
-                            onClick={() => onSelectElevation(traceSteps[selectedTraceIdx + 1].threshold)}
+                            onClick={() =>
+                              onSelectElevation(traceSteps[selectedTraceIdx + 1].threshold)
+                            }
                             className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs text-muted-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
                             title="Next step (↓)"
                           >

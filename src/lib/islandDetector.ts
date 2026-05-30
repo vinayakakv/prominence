@@ -1,13 +1,24 @@
+import { TILE_SIZE } from '@/config/map'
+import { stitchedPixelToLatLng } from './geoTiles'
+
 type RGBA = [number, number, number, number]
 
-const hslToRgb = (args: { hue: number; saturation: number; lightness: number }): [number, number, number] => {
+const hslToRgb = (args: {
+  hue: number
+  saturation: number
+  lightness: number
+}): [number, number, number] => {
   const { hue, saturation, lightness } = args
   const chroma = saturation * Math.min(lightness, 1 - lightness)
   const channelValue = (hueAngle: number) => {
     const hueSector = (hueAngle + hue / 30) % 12
     return lightness - chroma * Math.max(-1, Math.min(hueSector - 3, 9 - hueSector, 1))
   }
-  return [Math.round(channelValue(0) * 255), Math.round(channelValue(8) * 255), Math.round(channelValue(4) * 255)]
+  return [
+    Math.round(channelValue(0) * 255),
+    Math.round(channelValue(8) * 255),
+    Math.round(channelValue(4) * 255),
+  ]
 }
 
 export const islandColor = (idx: number): RGBA => {
@@ -22,25 +33,6 @@ let nextColorIdx = 0
 
 const peakKey = (lat: number, lng: number) => `${lat.toFixed(1)},${lng.toFixed(1)}` // ~11 km grid
 
-export const stitchedPixelToLatLng = (args: {
-  pixelIdx: number
-  width: number
-  tileZ: number
-  xMin: number
-  yMin: number
-  tileSize?: number
-}) => {
-  const { pixelIdx, width, tileZ, xMin, yMin, tileSize = 256 } = args
-  const pixelX = pixelIdx % width
-  const pixelY = (pixelIdx / width) | 0
-  const tileCount = 2 ** tileZ
-  const tileX = xMin + pixelX / tileSize
-  const tileY = yMin + pixelY / tileSize
-  const lng = (tileX / tileCount) * 360 - 180
-  const lat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * tileY) / tileCount))) * 180) / Math.PI
-  return { lat, lng }
-}
-
 export const detectAndRenderIslands = (args: {
   canvas: HTMLCanvasElement
   data: Float32Array
@@ -52,7 +44,7 @@ export const detectAndRenderIslands = (args: {
   yMin: number
   tileSize?: number
 }) => {
-  const { canvas, data, width, height, threshold, tileZ, xMin, yMin, tileSize = 256 } = args
+  const { canvas, data, width, height, threshold, tileZ, xMin, yMin, tileSize = TILE_SIZE } = args
   const labels = new Int32Array(width * height)
   for (let pixelIndex = 0; pixelIndex < data.length; pixelIndex++) {
     labels[pixelIndex] = data[pixelIndex] > threshold ? -1 : -2
@@ -90,7 +82,8 @@ export const detectAndRenderIslands = (args: {
           if (rowDelta === 0 && colDelta === 0) continue
           const neighborRow = row + rowDelta
           const neighborCol = col + colDelta
-          if (neighborRow < 0 || neighborRow >= height || neighborCol < 0 || neighborCol >= width) continue
+          if (neighborRow < 0 || neighborRow >= height || neighborCol < 0 || neighborCol >= width)
+            continue
           const neighborIndex = neighborRow * width + neighborCol
           if (labels[neighborIndex] === -1) {
             labels[neighborIndex] = componentId
@@ -106,7 +99,14 @@ export const detectAndRenderIslands = (args: {
 
   const colorAssignment = new Int32Array(islandSizes.length)
   for (let islandIndex = 0; islandIndex < islandSizes.length; islandIndex++) {
-    const { lat, lng } = stitchedPixelToLatLng({ pixelIdx: islandPeakIdx[islandIndex], width, tileZ, xMin, yMin, tileSize })
+    const { lat, lng } = stitchedPixelToLatLng({
+      pixelIdx: islandPeakIdx[islandIndex],
+      width,
+      tileZ,
+      xMin,
+      yMin,
+      tileSize,
+    })
     const key = peakKey(lat, lng)
     if (!colorRegistry.has(key)) {
       colorRegistry.set(key, nextColorIdx++)
@@ -135,6 +135,8 @@ export const detectAndRenderIslands = (args: {
 
   ctx.putImageData(imageData, 0, 0)
 }
+
+export { stitchedPixelToLatLng }
 
 export const detectIslandContaining = (args: {
   data: Float32Array
@@ -204,6 +206,8 @@ export const detectIslandContaining = (args: {
     borderPixels: new Int32Array(borderArr),
   }
 }
+
+export type IslandResult = NonNullable<ReturnType<typeof detectIslandContaining>>
 
 export const renderBorderToCanvas = (args: {
   canvas: HTMLCanvasElement

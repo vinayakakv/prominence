@@ -1,10 +1,11 @@
 import maplibregl from 'maplibre-gl'
 import mlContour from 'maplibre-contour'
+import { CONTOUR_SOURCE_LAYER, MAX_DEM_ZOOM, TERRARIUM_TILE_URL } from '@/config/map'
 
 export const demSource = new mlContour.DemSource({
-  url: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+  url: TERRARIUM_TILE_URL,
   encoding: 'terrarium',
-  maxzoom: 13,
+  maxzoom: MAX_DEM_ZOOM,
   worker: true,
 })
 
@@ -21,5 +22,5 @@ export const contourTileUrl = demSource.contourProtocolUrl({
   },
   elevationKey: 'ele',
   levelKey: 'level',
-  contourLayer: 'contours',
+  contourLayer: CONTOUR_SOURCE_LAYER,
 })
