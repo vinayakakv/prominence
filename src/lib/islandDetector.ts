@@ -1,45 +1,37 @@
+import { TILE_SIZE } from '@/config/map'
+import { stitchedPixelToLatLng } from './geoTiles'
+
 type RGBA = [number, number, number, number]
 
-const hslToRgb = (args: { hue: number; saturation: number; lightness: number }): [number, number, number] => {
+const hslToRgb = (args: {
+  hue: number
+  saturation: number
+  lightness: number
+}): [number, number, number] => {
   const { hue, saturation, lightness } = args
   const chroma = saturation * Math.min(lightness, 1 - lightness)
   const channelValue = (hueAngle: number) => {
     const hueSector = (hueAngle + hue / 30) % 12
     return lightness - chroma * Math.max(-1, Math.min(hueSector - 3, 9 - hueSector, 1))
   }
-  return [Math.round(channelValue(0) * 255), Math.round(channelValue(8) * 255), Math.round(channelValue(4) * 255)]
+  return [
+    Math.round(channelValue(0) * 255),
+    Math.round(channelValue(8) * 255),
+    Math.round(channelValue(4) * 255),
+  ]
 }
 
-export const islandColor = (idx: number): RGBA => {
-  const hue = (idx * 137.5) % 360
+export const islandColor = (colorIndex: number): RGBA => {
+  const hue = (colorIndex * 137.5) % 360
   const [red, green, blue] = hslToRgb({ hue, saturation: 0.75, lightness: 0.55 })
   return [red, green, blue, 160]
 }
 
 // Persistent registry: quantized peak location → color index
 const colorRegistry = new Map<string, number>()
-let nextColorIdx = 0
+let nextColorIndex = 0
 
 const peakKey = (lat: number, lng: number) => `${lat.toFixed(1)},${lng.toFixed(1)}` // ~11 km grid
-
-export const stitchedPixelToLatLng = (args: {
-  pixelIdx: number
-  width: number
-  tileZ: number
-  xMin: number
-  yMin: number
-  tileSize?: number
-}) => {
-  const { pixelIdx, width, tileZ, xMin, yMin, tileSize = 256 } = args
-  const pixelX = pixelIdx % width
-  const pixelY = (pixelIdx / width) | 0
-  const tileCount = 2 ** tileZ
-  const tileX = xMin + pixelX / tileSize
-  const tileY = yMin + pixelY / tileSize
-  const lng = (tileX / tileCount) * 360 - 180
-  const lat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * tileY) / tileCount))) * 180) / Math.PI
-  return { lat, lng }
-}
 
 export const detectAndRenderIslands = (args: {
   canvas: HTMLCanvasElement
@@ -52,45 +44,46 @@ export const detectAndRenderIslands = (args: {
   yMin: number
   tileSize?: number
 }) => {
-  const { canvas, data, width, height, threshold, tileZ, xMin, yMin, tileSize = 256 } = args
+  const { canvas, data, width, height, threshold, tileZ, xMin, yMin, tileSize = TILE_SIZE } = args
   const labels = new Int32Array(width * height)
   for (let pixelIndex = 0; pixelIndex < data.length; pixelIndex++) {
     labels[pixelIndex] = data[pixelIndex] > threshold ? -1 : -2
   }
 
   const islandSizes: number[] = []
-  const islandPeakIdx: number[] = []
+  const islandPeakPixelIndices: number[] = []
   const bfsQueue = new Int32Array(width * height)
 
-  for (let startIdx = 0; startIdx < labels.length; startIdx++) {
-    if (labels[startIdx] !== -1) continue
+  for (let startPixelIndex = 0; startPixelIndex < labels.length; startPixelIndex++) {
+    if (labels[startPixelIndex] !== -1) continue
 
     const componentId = islandSizes.length
     let size = 0
-    let peakIdx = startIdx
-    let peakEle = data[startIdx]
+    let peakPixelIndex = startPixelIndex
+    let peakElevation = data[startPixelIndex]
     let head = 0,
       tail = 0
 
-    bfsQueue[tail++] = startIdx
-    labels[startIdx] = componentId
+    bfsQueue[tail++] = startPixelIndex
+    labels[startPixelIndex] = componentId
 
     while (head < tail) {
-      const idx = bfsQueue[head++]
+      const currentPixelIndex = bfsQueue[head++]
       size++
-      if (data[idx] > peakEle) {
-        peakEle = data[idx]
-        peakIdx = idx
+      if (data[currentPixelIndex] > peakElevation) {
+        peakElevation = data[currentPixelIndex]
+        peakPixelIndex = currentPixelIndex
       }
 
-      const row = (idx / width) | 0
-      const col = idx % width
+      const row = (currentPixelIndex / width) | 0
+      const col = currentPixelIndex % width
       for (let rowDelta = -1; rowDelta <= 1; rowDelta++) {
         for (let colDelta = -1; colDelta <= 1; colDelta++) {
           if (rowDelta === 0 && colDelta === 0) continue
           const neighborRow = row + rowDelta
           const neighborCol = col + colDelta
-          if (neighborRow < 0 || neighborRow >= height || neighborCol < 0 || neighborCol >= width) continue
+          if (neighborRow < 0 || neighborRow >= height || neighborCol < 0 || neighborCol >= width)
+            continue
           const neighborIndex = neighborRow * width + neighborCol
           if (labels[neighborIndex] === -1) {
             labels[neighborIndex] = componentId
@@ -101,15 +94,22 @@ export const detectAndRenderIslands = (args: {
     }
 
     islandSizes.push(size)
-    islandPeakIdx.push(peakIdx)
+    islandPeakPixelIndices.push(peakPixelIndex)
   }
 
   const colorAssignment = new Int32Array(islandSizes.length)
   for (let islandIndex = 0; islandIndex < islandSizes.length; islandIndex++) {
-    const { lat, lng } = stitchedPixelToLatLng({ pixelIdx: islandPeakIdx[islandIndex], width, tileZ, xMin, yMin, tileSize })
+    const { lat, lng } = stitchedPixelToLatLng({
+      pixelIndex: islandPeakPixelIndices[islandIndex],
+      width,
+      tileZ,
+      xMin,
+      yMin,
+      tileSize,
+    })
     const key = peakKey(lat, lng)
     if (!colorRegistry.has(key)) {
-      colorRegistry.set(key, nextColorIdx++)
+      colorRegistry.set(key, nextColorIndex++)
     }
     const color = colorRegistry.get(key)
     if (color !== undefined) colorAssignment[islandIndex] = color
@@ -117,9 +117,9 @@ export const detectAndRenderIslands = (args: {
 
   canvas.width = width
   canvas.height = height
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-  const imageData = ctx.createImageData(width, height)
+  const canvasContext = canvas.getContext('2d')
+  if (!canvasContext) return
+  const imageData = canvasContext.createImageData(width, height)
   const pixels = imageData.data
 
   for (let pixelIndex = 0; pixelIndex < labels.length; pixelIndex++) {
@@ -133,42 +133,45 @@ export const detectAndRenderIslands = (args: {
     pixels[pixelOffset + 3] = alpha
   }
 
-  ctx.putImageData(imageData, 0, 0)
+  canvasContext.putImageData(imageData, 0, 0)
 }
+
+export { stitchedPixelToLatLng }
 
 export const detectIslandContaining = (args: {
   data: Float32Array
   width: number
   height: number
   threshold: number
-  seedIdx: number
+  seedPixelIndex: number
 }) => {
-  const { data, width, height, threshold, seedIdx } = args
-  if (seedIdx < 0 || seedIdx >= data.length || data[seedIdx] <= threshold) return null
+  const { data, width, height, threshold, seedPixelIndex } = args
+  if (seedPixelIndex < 0 || seedPixelIndex >= data.length || data[seedPixelIndex] <= threshold)
+    return null
 
   const visited = new Uint8Array(data.length)
-  const pixelsArr: number[] = []
-  const borderArr: number[] = []
-  let maxEle = data[seedIdx]
-  let maxEleIdx = seedIdx
+  const pixelIndices: number[] = []
+  const borderPixelIndices: number[] = []
+  let maxElevation = data[seedPixelIndex]
+  let maxElevationPixelIndex = seedPixelIndex
   let touchesBoundary = false
 
   const queue = new Int32Array(data.length)
   let head = 0,
     tail = 0
-  queue[tail++] = seedIdx
-  visited[seedIdx] = 1
+  queue[tail++] = seedPixelIndex
+  visited[seedPixelIndex] = 1
 
   while (head < tail) {
-    const idx = queue[head++]
-    pixelsArr.push(idx)
-    if (data[idx] > maxEle) {
-      maxEle = data[idx]
-      maxEleIdx = idx
+    const currentPixelIndex = queue[head++]
+    pixelIndices.push(currentPixelIndex)
+    if (data[currentPixelIndex] > maxElevation) {
+      maxElevation = data[currentPixelIndex]
+      maxElevationPixelIndex = currentPixelIndex
     }
 
-    const row = (idx / width) | 0
-    const col = idx % width
+    const row = (currentPixelIndex / width) | 0
+    const col = currentPixelIndex % width
     let isBorder = false
 
     for (let rowDelta = -1; rowDelta <= 1; rowDelta++) {
@@ -193,17 +196,19 @@ export const detectIslandContaining = (args: {
       }
     }
 
-    if (isBorder) borderArr.push(idx)
+    if (isBorder) borderPixelIndices.push(currentPixelIndex)
   }
 
   return {
-    pixels: new Int32Array(pixelsArr),
-    maxEle,
-    maxEleIdx,
+    pixels: new Int32Array(pixelIndices),
+    maxElevation,
+    maxElevationPixelIndex,
     touchesBoundary,
-    borderPixels: new Int32Array(borderArr),
+    borderPixels: new Int32Array(borderPixelIndices),
   }
 }
+
+export type IslandResult = NonNullable<ReturnType<typeof detectIslandContaining>>
 
 export const renderBorderToCanvas = (args: {
   canvas: HTMLCanvasElement
@@ -215,9 +220,9 @@ export const renderBorderToCanvas = (args: {
   const { canvas, borderPixels, width, height, color = [255, 255, 255, 230] as RGBA } = args
   canvas.width = width
   canvas.height = height
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-  const imageData = ctx.createImageData(width, height)
+  const canvasContext = canvas.getContext('2d')
+  if (!canvasContext) return
+  const imageData = canvasContext.createImageData(width, height)
   const pixels = imageData.data
   const [red, green, blue, alpha] = color
   for (let pixelIndex = 0; pixelIndex < borderPixels.length; pixelIndex++) {
@@ -227,5 +232,5 @@ export const renderBorderToCanvas = (args: {
     pixels[pixelOffset + 2] = blue
     pixels[pixelOffset + 3] = alpha
   }
-  ctx.putImageData(imageData, 0, 0)
+  canvasContext.putImageData(imageData, 0, 0)
 }
