@@ -134,15 +134,15 @@ export const InfoPanel = ({
                 Basemap
               </h3>
               <div className="flex gap-1">
-                {(['hillshade', 'satellite'] as Basemap[]).map((id) => (
+                {(['hillshade', 'satellite'] as Basemap[]).map((basemapOption) => (
                   <Button
-                    key={id}
-                    variant={basemap === id ? 'default' : 'outline'}
+                    key={basemapOption}
+                    variant={basemap === basemapOption ? 'default' : 'outline'}
                     size="sm"
                     className="flex-1"
-                    onClick={() => setBasemap(id)}
+                    onClick={() => setBasemap(basemapOption)}
                   >
-                    {id === 'hillshade' ? 'Terrain' : 'Satellite'}
+                    {basemapOption === 'hillshade' ? 'Terrain' : 'Satellite'}
                   </Button>
                 ))}
               </div>
@@ -162,7 +162,7 @@ export const InfoPanel = ({
                     type="number"
                     value={stepDelta}
                     min={1}
-                    onChange={(e) => setStepDelta(Math.max(1, Number(e.target.value)))}
+                    onChange={(event) => setStepDelta(Math.max(1, Number(event.target.value)))}
                     className="w-16 text-xs text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
                   />
                   <span className="text-xs text-muted-foreground">m</span>
@@ -173,7 +173,7 @@ export const InfoPanel = ({
                     type="number"
                     value={stepInterval}
                     min={1}
-                    onChange={(e) => setStepInterval(Math.max(1, Number(e.target.value)))}
+                    onChange={(event) => setStepInterval(Math.max(1, Number(event.target.value)))}
                     className="w-16 text-xs text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
                   />
                   <span className="text-xs text-muted-foreground">m</span>
@@ -187,7 +187,7 @@ export const InfoPanel = ({
                 <section>
                   <button
                     type="button"
-                    onClick={() => setTraceOpen((o) => !o)}
+                    onClick={() => setTraceOpen((isOpen) => !isOpen)}
                     className="w-full flex items-center justify-between mb-2 group"
                   >
                     <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
@@ -206,7 +206,7 @@ export const InfoPanel = ({
                             {doneStep.prominence} m prominence
                           </div>
                           <div className="text-xs text-green-700">
-                            Key col: {doneStep.keyColEle} m
+                            Key col: {doneStep.keyColElevation} m
                           </div>
                         </div>
                       )}
@@ -218,7 +218,7 @@ export const InfoPanel = ({
                                 key="done"
                                 className="px-2 py-1 rounded bg-green-100 text-green-800 font-semibold"
                               >
-                                {`✓ ${step.keyColEle} m — parent at ${step.parentPeak.ele.toFixed(0)} m`}
+                                {`✓ ${step.keyColElevation} m — parent at ${step.parentPeak.elevation.toFixed(0)} m`}
                               </div>
                             ) : (
                               <button

@@ -22,7 +22,7 @@ const parseUrlParams = (): InitialUrlParams => {
   const parsedBasemap = params.get('basemap')
   const parsedPeakLat = parseNumberParam(params, 'peak_lat')
   const parsedPeakLng = parseNumberParam(params, 'peak_lng')
-  const parsedPeakEle = parseNumberParam(params, 'peak_ele')
+  const parsedPeakElevation = parseNumberParam(params, 'peak_ele')
 
   return {
     longitude: parsedLng ?? DEFAULT_VIEW.longitude,
@@ -31,8 +31,8 @@ const parseUrlParams = (): InitialUrlParams => {
     selectedContour: parsedContour,
     basemap: parsedBasemap === 'satellite' ? 'satellite' : 'hillshade',
     savedPeak:
-      parsedPeakLat !== null && parsedPeakLng !== null && parsedPeakEle !== null
-        ? { lat: parsedPeakLat, lng: parsedPeakLng, ele: parsedPeakEle }
+      parsedPeakLat !== null && parsedPeakLng !== null && parsedPeakElevation !== null
+        ? { lat: parsedPeakLat, lng: parsedPeakLng, elevation: parsedPeakElevation }
         : null,
   }
 }
@@ -60,7 +60,7 @@ export const useSyncUrlParams = (args: {
     if (selectedPeak) {
       params.set('peak_lat', selectedPeak.lat.toFixed(5))
       params.set('peak_lng', selectedPeak.lng.toFixed(5))
-      params.set('peak_ele', selectedPeak.ele.toFixed(1))
+      params.set('peak_ele', selectedPeak.elevation.toFixed(1))
     }
     window.history.replaceState(null, '', `?${params.toString()}`)
   }, [mapPosition, selectedElevation, basemap, selectedPeak])

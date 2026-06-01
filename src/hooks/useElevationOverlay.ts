@@ -5,11 +5,15 @@ import type maplibregl from 'maplibre-gl'
 import { ISLAND_FILL_LAYER_ID, ISLAND_FILL_SOURCE_ID, MAX_DEM_ZOOM } from '@/config/map'
 import type { LatLng, MapPosition, Mode, Peak, Phase } from '@/types/app'
 import { renderElevationFill } from '@/lib/elevationFill'
-import { lngLatToPixelIdx } from '@/lib/prominenceAlgorithm'
 import type { ProminenceContext } from '@/lib/prominenceAlgorithm'
 import type { ProminenceFillResult } from '@/lib/prominenceTransition'
 import { detectIslandContaining } from '@/lib/islandDetector'
-import { getTileCanvasCoordinates, lngLatToTile, stitchedPixelToLatLng } from '@/lib/geoTiles'
+import {
+  getTileCanvasCoordinates,
+  lngLatToPixelIndex,
+  lngLatToTile,
+  stitchedPixelToLatLng,
+} from '@/lib/geoTiles'
 
 export const useElevationOverlay = (args: {
   mapRef: MutableRefObject<MapRef | null>
@@ -53,12 +57,20 @@ export const useElevationOverlay = (args: {
     const tileZ = Math.min(Math.floor(mapPosition.zoom), MAX_DEM_ZOOM)
     const bounds = map.getBounds()
     const maxTile = 2 ** tileZ - 1
-    const sw = lngLatToTile({ lng: bounds.getWest(), lat: bounds.getSouth(), zoomLevel: tileZ })
-    const ne = lngLatToTile({ lng: bounds.getEast(), lat: bounds.getNorth(), zoomLevel: tileZ })
-    const xMin = Math.max(0, Math.min(sw.x, ne.x))
-    const xMax = Math.min(maxTile, Math.max(sw.x, ne.x))
-    const yMin = Math.max(0, Math.min(sw.y, ne.y))
-    const yMax = Math.min(maxTile, Math.max(sw.y, ne.y))
+    const southwestTile = lngLatToTile({
+      lng: bounds.getWest(),
+      lat: bounds.getSouth(),
+      zoomLevel: tileZ,
+    })
+    const northeastTile = lngLatToTile({
+      lng: bounds.getEast(),
+      lat: bounds.getNorth(),
+      zoomLevel: tileZ,
+    })
+    const xMin = Math.max(0, Math.min(southwestTile.tileX, northeastTile.tileX))
+    const xMax = Math.min(maxTile, Math.max(southwestTile.tileX, northeastTile.tileX))
+    const yMin = Math.max(0, Math.min(southwestTile.tileY, northeastTile.tileY))
+    const yMax = Math.min(maxTile, Math.max(southwestTile.tileY, northeastTile.tileY))
 
     let cancelled = false
     renderElevationFill({ canvas, tileZ, xMin, xMax, yMin, yMax, threshold: selectedElevation })
@@ -74,11 +86,11 @@ export const useElevationOverlay = (args: {
         })
         map.setLayoutProperty(ISLAND_FILL_LAYER_ID, 'visibility', 'visible')
 
-        const ctx = prominenceCtxRef.current
-        if (ctx && phase === 'running') {
-          const seedIdx = lngLatToPixelIdx({
-            lat: ctx.peakLat,
-            lng: ctx.peakLng,
+        const prominenceContext = prominenceCtxRef.current
+        if (prominenceContext && phase === 'running') {
+          const seedPixelIndex = lngLatToPixelIndex({
+            lat: prominenceContext.peakLat,
+            lng: prominenceContext.peakLng,
             tileZ,
             xMin,
             yMin,
@@ -89,12 +101,12 @@ export const useElevationOverlay = (args: {
             data,
             width,
             height,
-            threshold: ctx.currentThreshold,
-            seedIdx,
+            threshold: prominenceContext.currentThreshold,
+            seedPixelIndex,
           })
           setFillResult({
             island,
-            threshold: ctx.currentThreshold,
+            threshold: prominenceContext.currentThreshold,
             tileZ,
             xMin,
             xMax,
@@ -106,7 +118,7 @@ export const useElevationOverlay = (args: {
         }
 
         if (mode === 'contour' && contourClickPoint && selectedElevation !== null) {
-          const seedIdx = lngLatToPixelIdx({
+          const seedPixelIndex = lngLatToPixelIndex({
             lat: contourClickPoint.lat,
             lng: contourClickPoint.lng,
             tileZ,
@@ -120,17 +132,17 @@ export const useElevationOverlay = (args: {
             width,
             height,
             threshold: selectedElevation,
-            seedIdx,
+            seedPixelIndex,
           })
           if (island) {
             const maxLatLng = stitchedPixelToLatLng({
-              pixelIdx: island.maxEleIdx,
+              pixelIndex: island.maxElevationPixelIndex,
               width,
               tileZ,
               xMin,
               yMin,
             })
-            setContourIslandMax({ ...maxLatLng, ele: island.maxEle })
+            setContourIslandMax({ ...maxLatLng, elevation: island.maxElevation })
           } else {
             setContourIslandMax(null)
           }

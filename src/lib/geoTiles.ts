@@ -3,12 +3,12 @@ import { TILE_SIZE } from '@/config/map'
 export const lngLatToTile = (args: { lng: number; lat: number; zoomLevel: number }) => {
   const { lng, lat, zoomLevel } = args
   const tileCount = 2 ** zoomLevel
-  const x = Math.floor(((lng + 180) / 360) * tileCount)
+  const tileX = Math.floor(((lng + 180) / 360) * tileCount)
   const latRad = (lat * Math.PI) / 180
-  const y = Math.floor(
+  const tileY = Math.floor(
     ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * tileCount,
   )
-  return { x, y }
+  return { tileX, tileY }
 }
 
 export const tileToLngLat = (args: {
@@ -39,7 +39,7 @@ export const getTileCanvasCoordinates = (args: {
   ]
 }
 
-export const lngLatToPixelIdx = (args: {
+export const lngLatToPixelIndex = (args: {
   lat: number
   lng: number
   tileZ: number
@@ -60,16 +60,16 @@ export const lngLatToPixelIdx = (args: {
 }
 
 export const stitchedPixelToLatLng = (args: {
-  pixelIdx: number
+  pixelIndex: number
   width: number
   tileZ: number
   xMin: number
   yMin: number
   tileSize?: number
 }) => {
-  const { pixelIdx, width, tileZ, xMin, yMin, tileSize = TILE_SIZE } = args
-  const pixelX = pixelIdx % width
-  const pixelY = (pixelIdx / width) | 0
+  const { pixelIndex, width, tileZ, xMin, yMin, tileSize = TILE_SIZE } = args
+  const pixelX = pixelIndex % width
+  const pixelY = (pixelIndex / width) | 0
   const tileCount = 2 ** tileZ
   const tileX = xMin + pixelX / tileSize
   const tileY = yMin + pixelY / tileSize
@@ -77,3 +77,5 @@ export const stitchedPixelToLatLng = (args: {
   const lat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * tileY) / tileCount))) * 180) / Math.PI
   return { lat, lng }
 }
+
+export { lngLatToPixelIndex as lngLatToPixelIdx }

@@ -162,22 +162,22 @@ const MapView = () => {
     }
 
     if (transition.type === 'complete') {
-      setHistory((h) => [...h, transition.step])
+      setHistory((historySteps) => [...historySteps, transition.step])
       setPhase('done')
       setParentPeak(transition.parentPeak)
       return
     }
 
     if (transition.type === 'expand-viewport') {
-      setHistory((h) => [...h, transition.step])
+      setHistory((historySteps) => [...historySteps, transition.step])
       const map = mapRef.current?.getMap()
       if (map) {
         const { tileZ, xMin, xMax, yMin, yMax } = fillResult
         const coords = getTileCanvasCoordinates({ zoomLevel: tileZ, xMin, yMin, xMax, yMax })
-        const sw: [number, number] = [coords[3][0], coords[2][1]]
-        const ne: [number, number] = [coords[1][0], coords[0][1]]
+        const southwestBounds: [number, number] = [coords[3][0], coords[2][1]]
+        const northeastBounds: [number, number] = [coords[1][0], coords[0][1]]
         setPaused(true)
-        map.fitBounds([sw, ne], { padding: 80, duration: 700 })
+        map.fitBounds([southwestBounds, northeastBounds], { padding: 80, duration: 700 })
         map.once('idle', () => {
           setPaused(false)
         })
@@ -185,7 +185,7 @@ const MapView = () => {
       return
     }
 
-    setHistory((h) => [...h, transition.step])
+    setHistory((historySteps) => [...historySteps, transition.step])
     prominenceCtxRef.current = transition.nextContext
     setProminenceCtx(transition.nextContext)
     setSelectedElevation(transition.nextContext.currentThreshold)
@@ -193,16 +193,16 @@ const MapView = () => {
 
   const onCompute = () => {
     if (!selectedPeak || !mapIsLoaded) return
-    const startThreshold = selectedPeak.ele - stepInterval
-    const ctx: ProminenceContext = {
+    const startThreshold = selectedPeak.elevation - stepInterval
+    const prominenceContext: ProminenceContext = {
       peakLat: selectedPeak.lat,
       peakLng: selectedPeak.lng,
-      peakEle: selectedPeak.ele,
+      peakElevation: selectedPeak.elevation,
       stepInterval,
       currentThreshold: startThreshold,
     }
-    prominenceCtxRef.current = ctx
-    setProminenceCtx(ctx)
+    prominenceCtxRef.current = prominenceContext
+    setProminenceCtx(prominenceContext)
     setSelectedElevation(startThreshold)
     setHistory([])
     setParentPeak(null)
@@ -216,7 +216,7 @@ const MapView = () => {
     setPaused(false)
   }
 
-  const onTogglePause = () => setPaused((p) => !p)
+  const onTogglePause = () => setPaused((isPaused) => !isPaused)
 
   const onStop = () => {
     prominenceCtxRef.current = null
@@ -381,8 +381,10 @@ const MapView = () => {
         phase={phase}
         selectedElevation={selectedElevation}
         onStepElevation={(direction) =>
-          setSelectedElevation((prev) =>
-            prev !== null ? stepElevation(prev, stepDelta, direction) : prev,
+          setSelectedElevation((previousElevation) =>
+            previousElevation !== null
+              ? stepElevation(previousElevation, stepDelta, direction)
+              : previousElevation,
           )
         }
         contourIslandMax={contourIslandMax}

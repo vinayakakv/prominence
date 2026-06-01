@@ -42,7 +42,7 @@ export const getNextProminenceTransition = (args: {
 }): ProminenceTransition => {
   const { context, fillResult, minIslandPixels } = args
   const { island, threshold, tileZ, xMin, yMin, width } = fillResult
-  const { peakEle, stepInterval } = context
+  const { peakElevation, stepInterval } = context
 
   if (!island) {
     return {
@@ -51,23 +51,23 @@ export const getNextProminenceTransition = (args: {
     }
   }
 
-  if (island.maxEle > peakEle && island.pixels.length >= minIslandPixels) {
+  if (island.maxElevation > peakElevation && island.pixels.length >= minIslandPixels) {
     const parentLatLng = stitchedPixelToLatLng({
-      pixelIdx: island.maxEleIdx,
+      pixelIndex: island.maxElevationPixelIndex,
       width,
       tileZ,
       xMin,
       yMin,
     })
-    const parentPeak = { ...parentLatLng, ele: island.maxEle }
+    const parentPeak = { ...parentLatLng, elevation: island.maxElevation }
     return {
       type: 'complete',
       parentPeak,
       step: {
         threshold,
         done: true,
-        keyColEle: threshold,
-        prominence: peakEle - threshold,
+        keyColElevation: threshold,
+        prominence: peakElevation - threshold,
         parentPeak,
       },
     }
@@ -77,7 +77,7 @@ export const getNextProminenceTransition = (args: {
     threshold,
     touchesBoundary: island.touchesBoundary,
     expandedTiles: false,
-    depthSoFar: peakEle - threshold,
+    depthSoFar: peakElevation - threshold,
     done: false,
   }
 
